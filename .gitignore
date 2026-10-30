@@ -1,0 +1,14 @@
+# Sistema / editores
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.swp
+
+# Dependencias y logs (por si algún día hay build)
+node_modules/
+*.log
+
+# Configuración local de Claude Code (permisos de esta máquina)
+.claude/settings.local.json

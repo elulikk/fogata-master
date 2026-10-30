@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0806">
+  <title>Fogata Master</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="wrap">
+    <div id="game"></div>
+
+    <div id="ui">
+      <div id="pit-info"></div>
+      <div id="hud-calor" class="hidden">
+        <div class="calor"><span class="ico">🔥</span><span id="calor-val">0</span></div>
+        <div id="calor-rate">+0 /s</div>
+        <div id="level" class="hidden">
+          <div class="lvl-label" id="lvl-text">Nivel 1</div>
+          <div class="bar"><div id="lvl-fill"></div></div>
+        </div>
+      </div>
+
+      <div id="hud-right">
+        <div id="matches" title="Tocá la leña para prenderla con un fósforo"><i class="match"></i><b id="matches-val">3</b> fósforos</div>
+        <button id="btn-mute" class="icon-btn" title="Sonido (M)" aria-label="Silenciar o activar sonido">🔊</button>
+        <button id="btn-menu" class="icon-btn" title="Menú (Esc)" aria-label="Abrir menú">⚙️</button>
+      </div>
+
+      <div id="topc">
+        <div id="forecast" class="hidden" role="status" aria-live="polite"></div>
+        <div id="night" class="hidden" role="status">
+          <div class="n-lbl"></div>
+          <div class="n-meter"></div>
+          <div class="bar"><div></div></div>
+        </div>
+        <div id="achv" class="hidden" role="status" aria-live="polite"></div>
+        <div id="toasts" role="status" aria-live="polite"></div>
+      </div>
+      <div id="hint"></div>
+
+      <div id="actions">
+        <button id="btn-forest" class="act hidden" title="Ir al bosque (B)"><span class="fill"></span><span class="lbl">🌲 Ir al bosque</span><kbd>B</kbd></button>
+        <button id="btn-shop" class="act hidden" title="Tienda (S)"><span class="lbl">🎒 Mercachifle</span><kbd>S</kbd></button>
+        <button id="btn-build" class="act hidden" title="Construir (C)"><span class="lbl">🔨 Construir</span><kbd>C</kbd></button>
+        <button id="btn-ashes" class="act hidden" title="Cenizas (A)"><span class="lbl">🪦 Cenizas</span><kbd>A</kbd></button>
+      </div>
+
+      <div id="helpers"></div>
+
+      <div id="rot" class="hidden" aria-label="Girar la leña">
+        <button data-dir="-1" aria-label="Girar a la izquierda">↺</button>
+        <button data-dir="1" aria-label="Girar a la derecha">↻</button>
+      </div>
+
+      <div id="panel" class="hidden">
+        <header>
+          <h2 id="panel-title"></h2>
+          <button id="panel-close" class="icon-btn" aria-label="Cerrar panel">✕</button>
+        </header>
+        <div id="panel-meta" class="hidden"></div>
+        <div id="panel-list"></div>
+      </div>
+
+      <div id="away" class="hidden">
+        <div class="away-box">
+          <div class="away-title">🌲 Estás en el bosque…</div>
+          <div class="away-sub">El fuego sigue solo. Ojalá aguante.</div>
+          <div class="bar"><div id="away-fill"></div></div>
+        </div>
+      </div>
+
+      <div id="modal" class="hidden">
+        <div class="modal-box">
+          <div class="modal-title">¡Subiste de nivel!</div>
+          <div class="modal-sub">Elegí una mejora <span class="kbd-hint">(1 · 2 · 3)</span></div>
+          <div id="cards"></div>
+        </div>
+      </div>
+
+      <div id="event" class="hidden" role="dialog" aria-modal="true" aria-labelledby="event-title">
+        <div class="event-box">
+          <div id="event-ico"></div>
+          <div id="event-title"></div>
+          <div id="event-text"></div>
+          <div id="event-choices"></div>
+        </div>
+      </div>
+
+      <div id="summary" class="hidden" role="dialog" aria-modal="true" aria-labelledby="summary-title">
+        <div class="summary-box">
+          <div id="summary-title"></div>
+          <div id="summary-sub"></div>
+          <div id="summary-lines"></div>
+          <div class="menu-row">
+            <button id="summary-ok" class="act">Seguir</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="mm" class="hidden" role="dialog" aria-modal="true" aria-labelledby="mm-title">
+        <div id="mm-box" class="menu-box"></div>
+      </div>
+
+      <div id="menu" class="hidden" role="dialog" aria-modal="true" aria-labelledby="menu-title">
+        <div class="menu-box">
+          <h2 id="menu-title">Ajustes</h2>
+          <p>Arrastrá leña de la pila y tirala al fuego. Tocá la leña para prenderla con un fósforo.
+            Si la cargás de más, se ahoga. Juntá calor para comprar y construir.</p>
+          <div class="settings">
+            <label class="set-row" for="set-volume">
+              <span>Volumen</span>
+              <input id="set-volume" type="range" min="0" max="100" step="5" value="80">
+            </label>
+            <label class="set-row" for="set-mute">
+              <span>Silenciar</span>
+              <input id="set-mute" type="checkbox">
+            </label>
+            <label class="set-row" for="set-motion">
+              <span>Reducir movimiento</span>
+              <input id="set-motion" type="checkbox">
+            </label>
+            <div class="set-row">
+              <span>Guardado</span>
+              <span class="set-btns">
+                <button id="btn-export" class="act small-btn">Exportar</button>
+                <button id="btn-import" class="act small-btn">Importar</button>
+                <input id="file-import" type="file" accept=".json,.txt,application/json,text/plain" hidden>
+              </span>
+            </div>
+          </div>
+          <details id="achv-details">
+            <summary id="achv-sum">🏆 Logros</summary>
+            <div id="achv-list"></div>
+          </details>
+          <div class="menu-row">
+            <button id="btn-resume" class="act">Volver</button>
+            <button id="btn-reset" class="act danger">Partida nueva…</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="rotate" aria-hidden="true">
+    <div class="rotate-ico">📱↻</div>
+    <div>Girá el dispositivo para jugar</div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.80.1/phaser.min.js"></script>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
