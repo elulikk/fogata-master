@@ -205,6 +205,106 @@ export class Fire {
     if (this.pitIsLit(pit)) this.sparkAt({ x: pit.x + (Math.random() - 0.5) * pit.half, y: GROUND_Y - 30 }, 6 + ((Math.random() * 6) | 0));
   }
 
+  // --- Mecha de la estructura (C5) ---
+
+  // Al prender un pozo con tipi o cabaña, una mecha de fuego recorre la armazón: en el tipi sube por cada
+  // pata hasta el cruce; en la cabaña corre por las bases, sube por los apoyos y salta al puente.
+  // Devuelve el tipo de estructura (para el sonido) o null si no hay mecha.
+  startWick(l) {
+    const p = l.pit;
+    const now = this.scene.time.now;
+    if (!p || !p.structFormed || p.wick || now - (p.wickT || -1e9) < 8000) return null;
+    const parts = this.slotted(p);
+    if (parts.length < 2) return null;
+    const cab = p.structFormed === 'cabana';
+    const ORDER = { base: [0, 0.6], stack: [0.4, 0.4], bridge: [0.75, 0.5] };
+    let ti = 0;
+    const segs = parts.map((o) => {
+      const [delay, dur] = o.slot.kind === 'tipi' ? [ti++ * 0.1, 0.7] : (ORDER[o.slot.kind] || [0, 0.5]);
+      return { o, delay, dur };
+    });
+    p.wick = { t: 0, segs, cab, total: Math.max(...segs.map((g) => g.delay + g.dur)) };
+    p.wickT = now;
+    return p.structFormed;
+  }
+
+  // Punto de la leña a la fracción u del recorrido (tipi: de abajo hacia arriba; plano: de afuera hacia adentro).
+  wickPoint(g, p, u) {
+    const e = g.o.endpoints();
+    let a = { x: e[0], y: e[1] };
+    let b = { x: e[2], y: e[3] };
+    const flip = g.o.slot.kind === 'tipi' || Math.abs(e[3] - e[1]) > Math.abs(e[2] - e[0])
+      ? a.y < b.y
+      : Math.abs(a.x - p.x) < Math.abs(b.x - p.x);
+    if (flip) [a, b] = [b, a];
+    return { x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u };
+  }
+
+  updateWicks(dt) {
+    const k = this.fxScale;
+    for (const p of this.pits) {
+      const w = p.wick;
+      if (!w) continue;
+      if (!p.structFormed) { p.wick = null; continue; } // se desarmó: la mecha se corta
+      w.t += dt;
+      let top = null;
+      for (const g of w.segs) {
+        const o = g.o;
+        if (!o.slot || o.dead || o.state === 'ceniza' || !o.sprite.body) continue; // pieza perdida: se corta ahí
+        const u = (w.t - g.delay) / g.dur;
+        if (u < 0) continue;
+        const pt = this.wickPoint(g, p, Math.min(1, u));
+        if (!top || pt.y < top.y) top = pt;
+        if (u <= 1.0) {
+          if (Math.random() < 0.8 * k) this.flames.L.emitParticleAt(pt.x, pt.y);
+          if (Math.random() < 0.5 * k) this.flames.M.emitParticleAt(pt.x + (Math.random() - 0.5) * 8, pt.y - 4);
+          if (Math.random() < 0.25 * k) this.sparkAt(pt, 1 + ((Math.random() * 2) | 0));
+        }
+      }
+      p.flash = Math.max(p.flash || 0, (0.3 + 0.5 * Math.min(1, w.t / w.total)) * k);
+      if (w.t >= w.total) {
+        // Remate: la llama llega arriba.
+        const tx = top ? top.x : p.x;
+        const ty = top ? top.y : GROUND_Y - 120;
+        for (let i = 0, n = Math.round((w.cab ? 8 : 6) * k); i < n; i++) {
+          this.flames.L.emitParticleAt(tx + (Math.random() - 0.5) * (w.cab ? 60 : 16), ty - Math.random() * 10);
+        }
+        this.sparkAt({ x: tx, y: ty }, Math.round(12 * k));
+        if (w.cab) this.ring.emitParticleAt(tx, ty, Math.round(12 * k));
+        p.flash = Math.max(p.flash || 0, 1.1 * k);
+        p.wick = null;
+      }
+    }
+  }
+
+  // Corona de brasas fija en el borde del pozo mientras la estructura tira; se apaga si se pierde.
+  updateCrowns(dt) {
+    const N = 9;
+    const k = this.fxScale;
+    for (const p of this.pits) {
+      const on = p.structFormed && this.pitIsLit(p);
+      if (!p.crown) {
+        if (!on) continue;
+        p.crown = [];
+        for (let i = 0; i < N; i++) p.crown.push(this.scene.add.image(0, 0, 'spark').setBlendMode(Phaser.BlendModes.ADD).setDepth(21).setTint(0xff8a30).setAlpha(0));
+        p.crownA = 0;
+      }
+      const target = on ? (0.5 + 0.3 * p.structure.quality) * (k < 1 ? 0.6 : 1) : 0;
+      p.crownA += (target - p.crownA) * Math.min(1, dt * 2);
+      const vis = p.crownA > 0.01;
+      const t = this.time;
+      for (let i = 0; i < N; i++) {
+        const e = p.crown[i];
+        e.setVisible(vis);
+        if (!vis) continue;
+        const f = (i / (N - 1)) * 2 - 1;
+        e.setPosition(p.x + f * (p.half - 8), GROUND_Y + 1 - 3 * (1 - f * f))
+          .setScale(0.7 + (k < 1 ? 0 : 0.2 * Math.sin(t * 3 + i * 1.7)))
+          .setAlpha(p.crownA * (k < 1 ? 1 : 0.75 + 0.25 * Math.sin(t * 4.1 + i * 2.3)));
+      }
+    }
+  }
+
   sparkAt(p, n) {
     this.sparks.emitParticleAt(p.x, p.y, n);
   }
@@ -853,6 +953,8 @@ export class Fire {
     }
     this.intensity = total;
     this.updatePeak(dt);
+    this.updateWicks(dt);
+    this.updateCrowns(dt);
 
     // Viento: las llamas y el humo se inclinan.
     const lean = wind * 140 * Math.sin(this.time * 0.7) + wind * 90;
@@ -940,7 +1042,8 @@ export class Fire {
     this.everLit = true;
     const size = Math.min(1, l.wood.thickness / 34 + 0.2);
     const k = this.fxScale;
-    this.audio.ignite(size);
+    // Pozo con estructura formada: la llama recorre la armazón (mecha) y suena su ignición propia.
+    this.audio.ignite(this.startWick(l) || size);
     // Pulso de luz y ráfaga de chispas proporcionales al grosor (rebrotar de brasas: más suave).
     if (l.pit) l.pit.flash = Math.max(l.pit.flash || 0, (soft ? 0.35 : 0.5 + 0.7 * size) * k);
     this.sparkAt(l, Math.round((6 + l.wood.thickness * (soft ? 0.4 : 0.9)) * (k < 1 ? 0.5 : 1)));

@@ -15,7 +15,7 @@ import { Weather } from '../objects/Weather.js';
 import { createTextures, W, H, GROUND_Y, layerTint, SKY_KEYS } from '../gfx/textures.js';
 import { pointSegDist, clamp } from '../utils/geom.js';
 import { SlotController } from './SlotController.js';
-import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE } from '../data/sizes.js';
+import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE, STRUCTURE } from '../data/sizes.js';
 
 // Área de leña de un tronco (la capacidad se muestra en "troncos equivalentes").
 const TRONCO_AREA = 7400;
@@ -498,6 +498,7 @@ export class GameScene extends Phaser.Scene {
       s.setFrictionAir(0.1);
       s.setAngularVelocity(clamp(s.body.angularVelocity, -0.15, 0.15));
       log.settleT = 0.5;
+      this.audio.woodTock(log.wood.weight, true); // asentado suave
     }
     // Un leño que no cabe horizontal en el pozo (tronco grueso en pozo chico) no se queda apoyado en las
     // piedras: se inclina lo justo para caer adentro.
@@ -590,6 +591,7 @@ export class GameScene extends Phaser.Scene {
         if (log.pit && power > 0.2 && now - (log.lastLand || 0) > 250) {
           log.lastLand = now;
           this.fire.landInPit(log, power); // tump + anillo de chispas
+          this.firstTime('pit', log.x, log.y);
         } else {
           this.audio.thud(power, log.wood.weight);
         }
@@ -608,8 +610,11 @@ export class GameScene extends Phaser.Scene {
     const ev = this.events;
     // Los eventos de escena sobreviven a scene.restart(): sin esto cada reinicio duplicaba los listeners
     // (texto "¡Armaste un tipi!" doble, sonidos y flashes repetidos).
-    for (const name of ['log:rotate', 'log:rest', 'log:overflow', 'log:returned', 'structure:formed', 'structure:lost', 'pit:grow', 'log:snap', 'log:unsnap']) ev.off(name);
-    ev.on('log:snap', (e) => this.slotsCtl.onSlotSnap(e));
+    for (const name of ['log:rotate', 'log:rest', 'log:overflow', 'log:returned', 'structure:formed', 'structure:lost', 'structure:collapse', 'pit:grow', 'log:snap', 'log:unsnap']) ev.off(name);
+    ev.on('log:snap', (e) => {
+      this.slotsCtl.onSlotSnap(e);
+      this.firstTime('snap', e.slot.x, e.slot.y);
+    });
     ev.on('log:unsnap', ({ log, pit, reason }) => {
       if (pit?.snapChain && reason !== 'grab') pit.snapChain = null;
       if (reason === 'grab' && pit?.snapChain) pit.snapChain.n = Math.max(0, pit.snapChain.n - 1);
@@ -621,7 +626,10 @@ export class GameScene extends Phaser.Scene {
     // Rotar: un clic por paso (~12°).
     ev.on('log:rotate', () => {
       this.audio.rotateTick();
-      if (this.drag) this.drag.lastRotT = this.time.now;
+      if (this.drag) {
+        this.drag.lastRotT = this.time.now;
+        this.firstTime('rotate', this.drag.log.x, this.drag.log.y - 20);
+      }
     });
     // Apoyo estable sobre otra leña.
     ev.on('log:rest', ({ log }) => {
@@ -650,7 +658,7 @@ export class GameScene extends Phaser.Scene {
       pit.flash = Math.max(pit.flash || 0, 0.2);
       if (!toasted && this.time.now - (pit.lastFullMsg || -1e9) > 4000) {
         pit.lastFullMsg = this.time.now;
-        this.floatText(log.x, log.y - 30, 'Pozo lleno', '#ffb36b', 1);
+        this.worldMsg(pit, 'Pozo lleno', '#ffb36b', 1, 1);
       }
     });
     // Vuelve al estante.
@@ -667,10 +675,18 @@ export class GameScene extends Phaser.Scene {
       if (!this.fx) return;
       if (type === 'cabana') this.cameras.main.flash(260, 255, 170, 80, false);
       else this.cameras.main.flash(160, 255, 215, 130, false);
-      // Un solo banner a la vez: el nuevo reemplaza al anterior.
-      const old = this.structBanner;
-      if (old?.active) { this.tweens.killTweensOf(old); old.destroy(); }
-      this.structBanner = this.floatText(pit.x, GROUND_Y - 260, type === 'cabana' ? '¡Armaste una cabaña!' : '¡Armaste un tipi!', '#ffd36b', 1.4);
+      // Un solo mensaje a la vez: título y, debajo, lo que rinde.
+      const pct = Math.round((STRUCTURE[type]?.calor || 0) * quality * 100);
+      const title = type === 'cabana' ? '¡Armaste una cabaña!' : '¡Armaste un tipi!';
+      const extra = type === 'cabana' ? `rinde +${pct} % de calor y entra más leña` : `rinde +${pct} % de calor`;
+      this.worldMsg(pit, `${title}
+${extra}`, '#ffd36b', 1.3, 2, 2600);
+      this.time.delayedCall(700, () => this.firstTime('structure', pit.x, GROUND_Y - 140));
+    });
+    // Derrumbe: se perdió el apoyo de una pieza y la estructura cae.
+    ev.on('structure:collapse', ({ pit }) => {
+      this.audio.collapse();
+      if (this.fx) this.worldMsg(pit, '¡Se derrumbó!', '#ff9a80', 1.2, 2, 1800);
     });
     // La primera vez de cada estructura, un toast explica qué hace.
     ev.on('structure:formed', ({ type }) => {
@@ -685,6 +701,46 @@ export class GameScene extends Phaser.Scene {
     ev.on('pit:grow', ({ pit, size }) => {
       if (this.sinceStart > 1) this.playGrow(pit, size);
     });
+  }
+
+  // Un solo mensaje a la vez sobre el mundo, con prioridad (3 urgencia/pico, 2 estructura o derrumbe,
+  // 1 avisos de encaje). Uno de menor prioridad se descarta mientras uno mayor sigue vigente; igual o mayor
+  // lo reemplaza. Se mantiene legible (sombra, trazo) y se desvanece al final. Los números de calor no pasan por acá.
+  worldMsg(pit, text, color = '#f3e6d3', scale = 1, prio = 1, life = 1700) {
+    const now = this.time.now;
+    const cur = this.worldMsgCur;
+    if (cur?.t.active) {
+      if (prio < cur.prio && now < cur.until) return null;
+      this.tweens.killTweensOf(cur.t);
+      cur.t.destroy();
+    }
+    const x = Phaser.Math.Clamp(typeof pit === 'number' ? pit : pit.x, 160, W - 160);
+    const y = GROUND_Y - 300 - (pit?.size || 0) * 8;
+    const t = this.add.text(x, y, text, {
+      fontFamily: 'Fredoka, system-ui', fontSize: `${Math.round(17 * scale)}px`, color, align: 'center', lineSpacing: 4,
+      stroke: '#000', strokeThickness: 5, fontStyle: '600',
+    }).setOrigin(0.5).setDepth(90).setShadow(0, 2, '#000', 6, true, true);
+    if (this.fx) {
+      t.setScale(0.7);
+      this.tweens.add({ targets: t, scale: 1, duration: 160, ease: 'back.out' });
+    }
+    this.tweens.add({
+      targets: t, y: y - 18, duration: life, ease: 'sine.out',
+    });
+    this.tweens.add({
+      targets: t, alpha: 0, delay: life * 0.65, duration: life * 0.35,
+      onComplete: () => { if (this.worldMsgCur?.t === t) this.worldMsgCur = null; t.destroy(); },
+    });
+    this.worldMsgCur = { t, prio, until: now + life * 0.8 };
+    return t;
+  }
+
+  // Primera vez de un gesto: campanita y chispa dorada, sin toast. Una sola vez por partida guardada.
+  firstTime(key, x, y) {
+    if (this.seenOnce(`first_${key}`)) return;
+    const n = ['pit', 'ignite', 'rotate', 'snap', 'structure'].indexOf(key);
+    this.audio.firstTime(Math.max(0, n));
+    if (this.fx) this.fire.sparkAt({ x, y }, 10);
   }
 
   // Marca una pista/aviso como visto (persiste en settings.seen). Devuelve true si ya estaba visto.
@@ -722,7 +778,7 @@ export class GameScene extends Phaser.Scene {
       this.fire.emberRise(900 + 900 * k);
       this.cameras.main.flash(220, 255, 190, 110, false);
     });
-    this.floatText(pit.x, GROUND_Y - 280, 'Fogata más grande', '#ffd36b', 1.4);
+    this.worldMsg(pit, 'Fogata más grande', '#ffd36b', 1.4, 2, 2200);
   }
 
   setupFireEvents() {
@@ -736,6 +792,7 @@ export class GameScene extends Phaser.Scene {
     this.fire.onIgnite = (log) => {
       // Fire ya hace el sonido, el pulso de luz y las chispas; acá solo la cámara.
       if (!this.fx || this.sinceStart < 1) return;
+      this.firstTime('ignite', log.x, log.y - 10);
       if (log.wood.thickness >= 24) this.cameras.main.shake(110, 0.0018);
     };
     this.fire.onPeak = ({ pit }) => this.peakBonus(pit);
@@ -751,7 +808,7 @@ export class GameScene extends Phaser.Scene {
   peakBonus(pit) {
     const bonus = Math.round(this.rate * this.state.mods.peakSecs);
     if (bonus > 0) this.state.gainCalor(bonus);
-    this.floatText(pit.x, GROUND_Y - 250, `¡Fogata en su punto! +${bonus}`, '#ffb347', 1.5);
+    this.worldMsg(pit, `¡Fogata en su punto! +${bonus}`, '#ffb347', 1.5, 3, 2400);
     this.ui.toast('🔥 ¡Fogata en su punto máximo!', 'unlock', 3500);
     if (this.fx) {
       this.cameras.main.flash(300, 255, 200, 120, false);
@@ -1398,11 +1455,14 @@ export class GameScene extends Phaser.Scene {
       l.img.setTint((Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b));
     }
     // Etiqueta del cielo para la UI (sin decir "noche" si no lo es).
+    const amb = Math.round(Math.min(1, w.deep + w.night + 0.3 * w.dusk) * 10) / 10;
+    if (amb !== this.lastAmb) { this.lastAmb = amb; this.audio.setAmbient(amb); }
     this.skyLabel = w.deep + w.night > 0.5 ? '🌙 Noche despejada' : w.day > 0.5 ? '☀️ Día despejado' : '🌇 Atardecer despejado';
   }
 
   setPaused(on) {
     this.paused = on;
+    this.audio.duck(on);
     if (on) {
       this.endDrag(true);
       this.matter.world.pause();
@@ -1556,6 +1616,12 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.updateDragRotation(dt);
+      if (this.drag) {
+        const d = this.drag;
+        this.audio.drag(Math.hypot(d.px - (d.lpx ?? d.px), d.py - (d.lpy ?? d.py)) / Math.max(dt, 0.001));
+        d.lpx = d.px;
+        d.lpy = d.py;
+      }
       this.slotsCtl.updateSlots();
       this.slotsCtl.updateSlotShadows();
       this.slotsCtl.slotMagnetTick();

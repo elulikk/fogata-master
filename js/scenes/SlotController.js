@@ -123,7 +123,7 @@ export class SlotController {
     const now = this.scene.time.now;
     if (this.tipiNoticeT && now - this.tipiNoticeT < 2500) return;
     this.tipiNoticeT = now;
-    this.scene.floatText(pit.x, GROUND_Y - 200, text, color, 1);
+    this.scene.worldMsg(pit, text, color, 1, 1, 1600);
   }
 
   // Pool de sprites: se crean una vez y se ocultan al sobrar.
