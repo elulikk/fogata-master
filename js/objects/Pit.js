@@ -53,7 +53,16 @@ export class Pit {
       .setBlendMode(Phaser.BlendModes.ADD).setTint(0xff5a1a).setAlpha(0).setDepth(12);
     this.light = scene.add.image(this.x, GROUND_Y - 80, 'glow')
       .setBlendMode(Phaser.BlendModes.ADD).setAlpha(0).setDepth(50);
-    this.roofGfx = scene.add.graphics().setDepth(36);
+    this.roofObjs = [];
+    // Llama persistente y luz del mundo (las mueve Fire.update según la intensidad).
+    this.flameBases = [];
+    this.flameBase = null;
+    this.groundGlow = scene.add.image(this.x, GROUND_Y + 4, 'glow-ground')
+      .setBlendMode(Phaser.BlendModes.ADD).setTint(0xff8a40).setAlpha(0).setDepth(7);
+    this.stoneGlow = scene.add.image(this.x, GROUND_Y - 6, 'glow-ground')
+      .setBlendMode(Phaser.BlendModes.ADD).setTint(0xff7a30).setAlpha(0).setDepth(31);
+    this.treeGlow = scene.add.image(this.x, GROUND_Y - 150, 'glow')
+      .setBlendMode(Phaser.BlendModes.ADD).setTint(0xff6a20).setAlpha(0).setDepth(0.45);
     this.build();
     scene.events.on('postupdate', this.tick, this);
   }
@@ -134,11 +143,11 @@ export class Pit {
     for (const side of [-1, 1]) {
       const wx = this.x + side * (this.half - 5);
       add(scene.add.tileSprite(wx, GROUND_Y - wh / 2 + 2, 16, wh + 4, wallKey).setDepth(21).setAlpha(wallAlpha).setTint(0xe0d8d8));
-      this.marks.push(add(scene.add.image(wx, GROUND_Y - wh - 8, 'load-mark').setDepth(31).setAlpha(0.5)));
+      this.marks.push(add(scene.add.image(wx, GROUND_Y - wh - 8, 'load-notch').setDepth(31).setAlpha(0.5)));
       if (this.size >= 6) {
         const px = this.x + side * (this.half + 38);
         add(scene.add.image(px, GROUND_Y + 4 - 75 * ps, 'post').setScale(ps).setDepth(21).setAlpha(compact ? 0.7 : 1));
-        this.runes.push(add(scene.add.image(px, GROUND_Y + 4 - 116 * ps, 'rune-glow').setScale(ps).setBlendMode(Phaser.BlendModes.ADD)
+        this.runes.push(add(scene.add.image(px, GROUND_Y + 4 - 88 * ps, 'rune-glow').setScale(ps).setBlendMode(Phaser.BlendModes.ADD)
           .setTint(0xff9a40).setAlpha(0.2).setDepth(24)));
       }
     }
@@ -152,6 +161,19 @@ export class Pit {
     }
     this.drawAsh();
     this.drawRoof();
+    this.makeFlames();
+  }
+
+  // Cuerpo de la llama: sprites con color pintado y mezcla NORMAL (no se queman a blanco al sumarse);
+  // un pozo ancho reparte varios a lo largo del lecho. Detrás de la leña (depth 19).
+  makeFlames() {
+    for (const o of this.flameBases) o.destroy();
+    this.flameBases = [];
+    const nb = Math.max(1, Math.min(4, Math.round(this.half / 75)));
+    for (let i = 0; i < nb; i++) {
+      this.flameBases.push(this.scene.add.image(this.x, GROUND_Y - 20, 'flame-base').setOrigin(0.5, 0.94).setAlpha(0).setDepth(19));
+    }
+    this.flameBase = this.flameBases[0];
   }
 
   // Marca de carga: borde del lecho y muescas pasan de naranja a rojo con loadRatio; runas laten con el fuego.
@@ -214,33 +236,24 @@ export class Pit {
     this.drawnAsh = this.ash;
   }
 
+  // Techo proporcional al pozo: dos puntales finos y una cubierta de paja sobre una viga de tablas.
+  // Un pozo chico queda bajo y angosto; uno grande sube con la pared y el ancho, sin tapar el cielo.
   drawRoof() {
-    const g = this.roofGfx;
-    g.clear();
+    for (const o of this.roofObjs) o.destroy();
+    this.roofObjs = [];
     if (!this.roof) return;
-    const l = this.left - 40;
-    const r = this.right + 40;
-    const top = this.top - 70;
-    g.fillStyle(0x3a2716, 1);
-    g.fillRect(l - 5, top, 10, GROUND_Y - top);
-    g.fillRect(r - 5, top + 24, 10, GROUND_Y - top - 24);
-    // Chapa inclinada.
-    g.fillStyle(0x4d4a48, 1);
-    g.beginPath();
-    g.moveTo(l - 30, top - 8);
-    g.lineTo(r + 30, top + 18);
-    g.lineTo(r + 30, top + 30);
-    g.lineTo(l - 30, top + 4);
-    g.closePath();
-    g.fillPath();
-    g.lineStyle(1, 0x6d6966, 0.8);
-    for (let x = l - 20; x < r + 30; x += 18) {
-      const t = (x - (l - 30)) / (r - l + 60);
-      g.lineBetween(x, top - 8 + t * 26, x, top + 4 + t * 26);
+    const add = (o) => { this.roofObjs.push(o); return o; };
+    const l = this.left - 14, r = this.right + 14;
+    const top = GROUND_Y - (this.wallH + 115 + this.size * 9);
+    const w = r - l + 44;
+    for (const x of [l, r]) {
+      add(this.scene.add.tileSprite(x, (top + GROUND_Y + 4) / 2, 10, GROUND_Y + 4 - top, 'roof-support').setDepth(21));
     }
+    add(this.scene.add.tileSprite((l + r) / 2, top + 8, w, 18, 'roof-plank').setDepth(36));
+    add(this.scene.add.tileSprite((l + r) / 2, top - 14, w + 10, 36, 'roof-thatch').setDepth(37));
   }
 
-  get roofY() { return this.top - 60; }
+  get roofY() { return GROUND_Y - (this.wallH + 115 + this.size * 9); }
 
   destroy() {
     this.scene.events.off('postupdate', this.tick, this);
@@ -249,7 +262,8 @@ export class Pit {
     this.ashGfx.destroy();
     this.bedGlow.destroy();
     this.light.destroy();
-    this.roofGfx.destroy();
+    for (const o of this.roofObjs) o.destroy();
+    for (const o of [...this.flameBases, this.groundGlow, this.stoneGlow, this.treeGlow]) o.destroy();
   }
 }
 

@@ -865,7 +865,7 @@ export class Ui {
         : `${info.icon} ${info.name} · ${secs} s`;
     } else if (v.weatherOn) {
       fc.classList.remove('hidden', 'active');
-      fc.textContent = '🌙 Noche despejada';
+      fc.textContent = v.skyLabel || '🌙 Noche despejada';
     } else {
       fc.classList.add('hidden');
     }

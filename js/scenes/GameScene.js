@@ -12,7 +12,7 @@ import { Log } from '../objects/Log.js';
 import { Fire } from '../objects/Fire.js';
 import { Pit } from '../objects/Pit.js';
 import { Weather } from '../objects/Weather.js';
-import { createTextures, W, H, GROUND_Y } from '../gfx/textures.js';
+import { createTextures, W, H, GROUND_Y, layerTint, SKY_KEYS } from '../gfx/textures.js';
 import { pointSegDist, clamp } from '../utils/geom.js';
 import { SlotController } from './SlotController.js';
 import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE } from '../data/sizes.js';
@@ -48,12 +48,16 @@ export class GameScene extends Phaser.Scene {
     createTextures(this);
     // Fondo en capas (depth 0..0.5, debajo de todo lo demás); el cielo de amanecer se funde entre cielo y colinas.
     this.skyLayer = this.add.image(0, 0, 'bg-sky').setOrigin(0).setDepth(0);
-    this.dawnSky = this.add.image(0, 0, 'sky-dawn').setOrigin(0).setDepth(0.05).setAlpha(0);
+    // Ciclo de luz: cielos apilados (noche → noche profunda → atardecer → día) con alpha normalizado.
+    this.skies = [['night', this.skyLayer], ...[['deep', 0.01], ['dusk', 0.02], ['day', 0.03]].map(([ph, d]) =>
+      [ph, this.add.image(0, 0, SKY_KEYS[ph]).setOrigin(0).setDepth(d).setAlpha(0).setScale(ph === 'deep' ? 1 : 2)])];
+    this.skyW = null; // pesos suavizados por fase (se inicializan en el primer updateLight)
+    this.dawnSky = this.add.image(0, 0, 'sky-dawn').setOrigin(0).setScale(2).setDepth(0.05).setAlpha(0);
     // Rayos del sol naciente (x≈435, y≈546): el origen queda en el sol para que el giro sea alrededor de él.
-    this.dawnRays = this.add.image(W * 0.34, 546, 'dawn-rays').setOrigin(0.34, 546 / H).setDepth(0.06).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
-    this.parallax = [['bg-hills', 0.1, 4], ['bg-trees-far', 0.2, 8], ['bg-trees-mid', 0.3, 13], ['bg-trees-near', 0.4, 20]].map(([key, depth, amp]) =>
-      ({ amp, img: this.add.image(W / 2, H / 2, key).setScale(1.04).setDepth(depth) }));
-    this.add.image(0, 0, 'bg-ground').setOrigin(0).setDepth(0.5);
+    this.dawnRays = this.add.image(W * 0.34, 546, 'dawn-rays').setScale(2).setOrigin(0.34, 546 / H).setDepth(0.06).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
+    this.parallax = [['hills', 'bg-hills-lit', 0.1, 4], ['far', 'bg-trees-far-lit', 0.2, 8], ['mid', 'bg-trees-mid-lit', 0.3, 13], ['near', 'bg-trees-near-lit', 0.4, 20]].map(([layer, key, depth, amp]) =>
+      ({ layer, amp, img: this.add.image(W / 2, H / 2, key).setScale(1.04).setDepth(depth) }));
+    this.groundLayer = this.add.image(0, 0, 'bg-ground-lit').setOrigin(0).setDepth(0.5);
     this.parallaxX = 0;
     this.createWorld();
 
@@ -66,7 +70,7 @@ export class GameScene extends Phaser.Scene {
     this.warm = this.add.rectangle(0, 0, W, H, 0xff6a20).setOrigin(0).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0).setDepth(55);
     this.coldTint = this.add.rectangle(0, 0, W, H, 0x1c2f78).setOrigin(0).setAlpha(0).setDepth(56);
     this.slotsCtl = new SlotController(this);
-    this.vignette = this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(60);
+    this.vignette = this.add.image(0, 0, 'vignette').setOrigin(0).setScale(2).setDepth(60);
 
     this.orbs = [];
     this.drag = null;
@@ -761,7 +765,7 @@ export class GameScene extends Phaser.Scene {
   spawnOrb(x, y) {
     const value = Math.max(1, Math.round(1 + this.rate * 0.8));
     const img = this.add.image(x, y, 'orb').setBlendMode(Phaser.BlendModes.ADD).setDepth(70).setScale(0.2);
-    this.tweens.add({ targets: img, scale: 0.8 + Math.min(0.6, value / 40), duration: 300, ease: 'back.out' });
+    this.tweens.add({ targets: img, scale: 0.5 + Math.min(0.35, value / 60), duration: 300, ease: 'back.out' });
     this.orbs.push({ img, value, vx: (Math.random() - 0.5) * 60, vy: -70 - Math.random() * 40, life: 7, phase: Math.random() * 6 });
   }
 
@@ -1337,6 +1341,66 @@ export class GameScene extends Phaser.Scene {
     this.state.save();
   }
 
+  // Ciclo de luz (H1): sin noches desbloqueadas, atardecer permanente; con ellas, día → atardecer →
+  // noche (que se vuelve profunda) → amanecer (lo pone playDawn con dawnSky). Mezcla gradual entre fases.
+  lightTarget() {
+    const d = this.state.data;
+    const w = { day: 0, dusk: 0, night: 0, deep: 0 };
+    if (!d.unlocked.noches || d.night.phase === 'off') { w.dusk = 1; return w; }
+    const ni = this.state.nightInfo();
+    const p = ni.pct;
+    if (ni.phase === 'day') w.day = 1;
+    else if (ni.phase === 'dusk') {
+      if (p < 0.5) { w.day = 1 - 2 * p; w.dusk = 2 * p; } else { w.dusk = 2 - 2 * p; w.night = 2 * p - 1; }
+    } else {
+      const k = Math.min(1, p * 3);
+      const e = k * k * (3 - 2 * k);
+      w.night = 1 - e; w.deep = e;
+    }
+    return w;
+  }
+
+  updateLight(dt) {
+    const tgt = this.lightTarget();
+    if (!this.skyW) this.skyW = { ...tgt };
+    const a = Math.min(1, dt * 0.9);
+    for (const k of Object.keys(tgt)) this.skyW[k] += (tgt[k] - this.skyW[k]) * a;
+    const w = this.skyW;
+    this.skyBright = w.day + w.dusk * 0.55 + w.night * 0.1;
+    // El amanecer se va apagando durante el día.
+    const nd = this.state.data.night;
+    if (nd.phase === 'day' && this.dawnSky.alpha > 0 && !this.tweens.isTweening(this.dawnSky)) {
+      const f = Math.min(1, nd.t / 40);
+      this.dawnSky.setAlpha(Math.min(this.dawnSky.alpha, 0.9 * (1 - f)));
+      this.dawnRays.setAlpha(Math.min(this.dawnRays.alpha, 0.6 * (1 - f)));
+    }
+    // Cielos: pintados en orden, cada uno con alpha = peso / acumulado (mezcla exacta).
+    let cum = 0;
+    for (const [ph, img] of this.skies) {
+      cum += w[ph];
+      img.setAlpha(cum > 0.0001 ? Math.min(1, w[ph] / cum) : 0).setVisible(w[ph] > 0.002 || ph === 'night');
+    }
+    this.skyLayer.setAlpha(1).setVisible(true);
+    // Capas con tinte por fase (mezcla de los tintes ponderada) y sol naciente.
+    const da = this.dawnSky.alpha / 0.9;
+    for (const l of this.parallax.concat([{ layer: 'ground', img: this.groundLayer }])) {
+      let r = 0, g = 0, b = 0, sum = 0;
+      for (const ph of ['day', 'dusk', 'night', 'deep']) {
+        if (w[ph] <= 0.001) continue;
+        const c = layerTint(l.layer, ph);
+        r += ((c >> 16) & 255) * w[ph]; g += ((c >> 8) & 255) * w[ph]; b += (c & 255) * w[ph]; sum += w[ph];
+      }
+      r /= sum || 1; g /= sum || 1; b /= sum || 1;
+      if (da > 0.01) {
+        const c = layerTint(l.layer, 'dawn');
+        r += (((c >> 16) & 255) - r) * da; g += (((c >> 8) & 255) - g) * da; b += ((c & 255) - b) * da;
+      }
+      l.img.setTint((Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b));
+    }
+    // Etiqueta del cielo para la UI (sin decir "noche" si no lo es).
+    this.skyLabel = w.deep + w.night > 0.5 ? '🌙 Noche despejada' : w.day > 0.5 ? '☀️ Día despejado' : '🌇 Atardecer despejado';
+  }
+
   setPaused(on) {
     this.paused = on;
     if (on) {
@@ -1512,8 +1576,9 @@ export class GameScene extends Phaser.Scene {
     this.parallaxX += (target - this.parallaxX) * Math.min(1, dt * 3);
     for (const l of this.parallax) l.img.x = W / 2 - this.parallaxX * l.amp * 2;
 
+    this.updateLight(dt);
     const I =Math.min(1.2, this.fire.intensity);
-    this.warm.setAlpha(Math.min(0.12, I * 0.07));
+    this.warm.setAlpha(Math.min(0.12, I * 0.07) * (1 - 0.7 * (this.skyBright || 0)));
     // Frío de la noche: luz más débil, viñeta más cerrada y un velo azul.
     const cold = this.state.data.unlocked.noches ? this.state.nightInfo().cold * (this.fx ? 1 : 0.4) : 0;
     this.fire.cold = cold;
@@ -1555,6 +1620,7 @@ export class GameScene extends Phaser.Scene {
         matches: this.state.res.fosforo,
         forecast: data.unlocked.clima ? this.weather.forecast : null,
         weatherOn: !!data.unlocked.clima,
+        skyLabel: this.skyLabel,
         trip: this.trip ? { progress: this.trip.t / this.trip.dur } : null,
         helpers,
       });

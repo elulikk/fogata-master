@@ -49,23 +49,29 @@ export class Fire {
 
   createEmitters() {
     const s = this.scene;
-    const flame = (scale, life, speed) => s.add.particles(0, 0, 'flame', {
+    // Llamas: lenguas afiladas (flame-a/b/c, 48×120) que suben y se afinan; el color pasa de crema a rojo
+    // oscuro con la vida. Dos texturas por tamaño dan variedad de curva; flameCore es el núcleo claro.
+    const flame = (tex, scale, life, speed, alpha = 0.27, depth = 19.5) => s.add.particles(0, 0, tex, {
       emitting: false,
       lifespan: { min: life * 0.6, max: life },
-      speedX: { min: -18, max: 18 },
-      speedY: { min: -speed, max: -speed * 0.5 },
-      accelerationY: -70,
-      scale: { start: scale, end: 0.05 },
-      alpha: { start: 0.7, end: 0 },
-      color: [0xffe39a, 0xffa030, 0xf05a10, 0x7a1800],
+      speedX: { min: -12, max: 12 },
+      speedY: { min: -speed, max: -speed * 0.55 },
+      accelerationY: -50,
+      rotate: { min: -7, max: 7 },
+      scaleX: { start: scale * 1.1, end: scale * 0.25 },
+      scaleY: { start: scale, end: scale * 0.55 },
+      alpha: { start: alpha, end: 0 },
+      color: [0xffc870, 0xff9a30, 0xe85010, 0x6a1400],
       colorEase: 'quad.out',
       blendMode: 'ADD',
-    }).setDepth(40);
+    }).setDepth(depth);
     this.flames = {
-      S: flame(0.4, 650, 130),
-      M: flame(0.62, 800, 150),
-      L: flame(0.85, 950, 170),
+      S: flame('flame-lick', 0.9, 650, 100, 0.27, 40),
+      M: flame('flame-b', 0.75, 800, 120),
+      L: flame('flame-a', 0.95, 950, 140),
     };
+    this.flamesAlt = { S: null, M: flame('flame-c', 0.75, 800, 120), L: flame('flame-c', 0.95, 950, 140) };
+    this.flameCore = flame('flame-core', 0.55, 520, 90, 0.18, 40);
     // Chispas alargadas: la punta brillante apunta en el sentido de la velocidad.
     const streak = {
       onEmit: () => 0,
@@ -787,6 +793,8 @@ export class Fire {
     for (let i = logs.length - 1; i >= 0; i--) if (logs[i].state === 'ceniza') logs.splice(i, 1);
 
     // --- Lecho, luz e intensidad por pozo ---
+    // Con cielo claro (día, atardecer) la luz aditiva se atenúa para no quemar la imagen.
+    const bright = this.scene.skyBright || 0;
     const flick = 1 + 0.07 * Math.sin(this.time * 13) + 0.05 * Math.sin(this.time * 29 + 1) + Math.random() * 0.04;
     let total = 0;
     for (const p of this.pits) {
@@ -815,10 +823,30 @@ export class Fire {
       // Con buen tiraje la luz parpadea menos y se estira hacia arriba (llama ordenada).
       const dq = this.draftOf(p);
       const fk = 1 + (flick - 1) * (1 - 0.6 * dq);
-      const sc = (1.8 + I * 2.4) * (1 + 0.3 * (p.hs - 1)) * fk * (1 + fl * 0.6);
+      const sc = (1.5 + Math.min(1.2, I) * 1.9) * (1 + 0.3 * (p.hs - 1)) * fk * (1 + fl * 0.6);
       p.light.setPosition(p.lightX, p.lightY)
         .setScale(sc, sc * (1 + 0.18 * dq))
-        .setAlpha(Math.min(1, Math.min(0.85, I * 0.75) * flick * dim + fl * 0.3));
+        .setAlpha(Math.min(1, Math.min(0.3, I * 0.3) * flick * dim + fl * 0.2) * (1 - 0.65 * bright));
+      // Llama persistente, luz de suelo/piedras y brillo en los árboles cercanos.
+      const fi = Math.min(1, I);
+      const ff = 1 + 0.05 * Math.sin(this.time * 9 + p.index) + 0.03 * Math.sin(this.time * 23);
+      const fs = (0.45 + 0.85 * fi) * (0.7 + 0.3 * Math.min(1.5, p.half / 90)) * (this.motion ? ff : 1);
+      const nb = p.flameBases.length;
+      for (let bi = 0; bi < nb; bi++) {
+        const off = nb === 1 ? 0 : (bi / (nb - 1) - 0.5) * 2;
+        const ph = p.index * 1.7 + bi * 2.3;
+        const sk = (nb > 1 ? 0.85 - 0.1 * Math.abs(off) : 1) * fs;
+        p.flameBases[bi]
+          .setPosition(clamp(p.lightX + off * p.half * 0.55, p.left + 30, p.right - 30), p.lightY + 36)
+          .setScale(sk * (1 + 0.06 * Math.sin(this.time * 6.3 + ph)), sk * (1 + 0.08 * Math.sin(this.time * 7.1 + ph)))
+          .setRotation(this.motion ? 0.035 * Math.sin(this.time * 3.1 + ph) : 0)
+          .setAlpha(Math.min(0.9, fi * 1.2) * dim);
+      }
+      const gl = (Math.min(1, I * 0.8) * flick * dim + fl * 0.3) * (1 - 0.5 * bright);
+      const gw = p.half * 6.5 / 512;
+      p.groundGlow.setPosition(p.x, GROUND_Y + 4).setScale(gw, gw * 1.1).setAlpha(Math.min(0.95, gl * 1.0));
+      p.stoneGlow.setPosition(p.x, GROUND_Y - 8).setScale(gw * 0.7, gw * 0.5).setAlpha(Math.min(0.16, gl * 0.18));
+      p.treeGlow.setPosition(p.x, GROUND_Y - 150).setScale(p.half / 26, p.half / 40).setAlpha(Math.min(0.6, gl * 0.55) * (1 - 0.7 * bright));
       p.bedGlow.setScale(p.half / 110, 0.16).setAlpha(Math.min(1, p.bed * (0.7 + 0.5 * p.bellows)) * flick);
       if (Math.abs(p.ash - (p.drawnAsh || 0)) > 0.02) p.drawAsh();
       total += I;
@@ -828,8 +856,10 @@ export class Fire {
 
     // Viento: las llamas y el humo se inclinan.
     const lean = wind * 140 * Math.sin(this.time * 0.7) + wind * 90;
-    for (const e of [this.flames.S, this.flames.M, this.flames.L, this.smoke]) e.accelerationX = lean;
+    for (const e of [this.flames.S, this.flames.M, this.flames.L, this.flamesAlt.M, this.flamesAlt.L, this.flameCore, this.smoke]) e.accelerationX = lean;
 
+    // Con cielo claro las partículas aditivas se apagan (si no, se ven blancas).
+    for (const e of [this.flames.S, this.flames.M, this.flames.L, this.flamesAlt.M, this.flamesAlt.L, this.flameCore]) e.setAlpha(1 - 0.6 * bright);
     let air = 1;
     for (const p of this.pits) if (p.burningLogs) air = Math.min(air, p.air);
     let draft = 0;
@@ -970,12 +1000,13 @@ export class Fire {
     let char;
     if (l.state === 'cruda') char = clamp((l.temp - 0.15) * 0.6, 0, 0.25);
     else char = clamp(0.3 + (1 - l.fuel / l.maxFuel) * 1.1, 0, 0.92);
-    if (Math.abs(char - l.char) > 0.01) {
+    if (Math.abs(char - l.char) > 0.01 || l.burnTint !== l.burning) {
+      l.burnTint = l.burning;
       l.char = char;
-      l.sprite.setTint(lerpColor(0xffffff, 0x2a201c, char));
+      l.sprite.setTint(lerpColor(0xffffff, 0x2a201c, Math.min(0.85, char * 0.8 + (l.burning ? 0.35 : 0))));
     }
     let a = 0;
-    let color = 0xff9a40;
+    let color = 0xff8030;
     if (l.state === 'llama') {
       a = (0.2 + 0.3 * l.flame) * (0.85 + 0.15 * Math.sin(time * 0.02 + l.phase));
     } else if (l.state === 'brasas') {
@@ -984,7 +1015,19 @@ export class Fire {
     } else if (l.temp > 0.35) {
       a = (l.temp - 0.35) * 0.4;
     }
-    l.glow.setAlpha(Math.min(1, a));
+    l.glow.setAlpha(Math.min(1, a * (l.cone ? 1 : 0.8)));
+    // Carbonizado progresivo y grietas incandescentes (solo troncos; se crean cuando empiezan a arder).
+    if (!l.cone && (char > 0.3 || l.state === 'brasas')) {
+      l.ensureOverlays();
+      l.charImg.setAlpha(clamp((char - 0.25) * 1.3, 0, 0.95));
+      const heavy = char > 0.7 ? 'log-char1' : 'log-char0';
+      if (l.charImg.texture.key !== heavy) l.charImg.setTexture(heavy);
+      let ca = 0;
+      if (l.state === 'llama') ca = 0.25 * l.flame * (0.8 + 0.2 * Math.sin(time * 0.012 + l.phase));
+      else if (l.state === 'brasas') ca = l.glowLevel * (0.55 + 0.45 * Math.sin(time * 0.0035 + l.phase));
+      l.crackImg.setAlpha(Math.min(1, ca));
+      l.crackImg.setTint(l.state === 'brasas' ? 0xff6a20 : 0xffb050);
+    }
     if (l.glowColor !== color) {
       l.glow.setTintFill(color);
       l.glowColor = color;
@@ -1003,13 +1046,16 @@ export class Fire {
     if (l.flame > 0.03) {
       // Buen tiraje: más llama, más ordenada.
       const dq = p ? this.draftOf(p) : 0;
-      const rate = 50 * l.flame * (Math.max(60, l.length) / 100) * w.flameRate * (1 + 0.7 * boost) * this.budget * (1 + 0.3 * dq);
+      const cap = p ? (() => { const n = 5 + 2 * p.size; return Math.min(1, n / Math.max(n, p.burningLogs || 0)); })() : 1; // el brillo no crece con la cantidad de leña
+      const rate = cap * 50 * l.flame * (Math.max(60, l.length) / 100) * w.flameRate * (1 + 0.7 * boost) * this.budget * (1 + 0.3 * dq);
       l.acc.flame += rate * dt;
       const em = this.flames[w.flame];
+      const alt = this.flamesAlt[w.flame];
       while (l.acc.flame >= 1) {
         l.acc.flame -= 1;
         const q = l.pointAlong(0.1 + rnd() * 0.8);
-        em.emitParticleAt(q.x + (rnd() - 0.5) * 4, q.y - l.thickness * 0.3);
+        (alt && rnd() < 0.5 ? alt : em).emitParticleAt(q.x + (rnd() - 0.5) * 4, q.y - l.thickness * 0.85);
+        if (rnd() < 0.08) this.flameCore.emitParticleAt(q.x + (rnd() - 0.5) * 3, q.y - l.thickness * 0.9);
       }
       if (rnd() < w.crackle * l.flame * dt) {
         const strength = 0.4 + 0.6 * Math.min(1, l.flame);

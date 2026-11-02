@@ -15,6 +15,12 @@ function canvasTex(scene, key, w, h, draw) {
   tex.refresh();
 }
 
+// Textura a media resolución para dibujos suaves (gradientes): se dibuja con las coordenadas de W×H y
+// la escena la muestra con setScale(2). Ahorra 3/4 de la memoria de GPU.
+function halfTex(scene, key, draw) {
+  canvasTex(scene, key, W / 2, H / 2, (ctx, w, h) => { ctx.scale(0.5, 0.5); draw(ctx, W, H); });
+}
+
 function roundRectPath(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -353,8 +359,8 @@ function drawStone(ctx, w, h, tone, seed = 0) {
 }
 
 // ---- Fondo en capas ----
-// Cada capa es una textura de W×H con transparencia ('bg-sky', 'bg-hills', 'bg-trees-far',
-// 'bg-trees-mid', 'bg-trees-near', 'bg-ground'); 'bg' las compone para que nada cambie.
+// 'bg-sky' (noche) es una textura de W×H; las capas de colinas, árboles y suelo son las "-lit" (más abajo)
+// y se tiñen por hora. Los cielos de gradiente suave se generan a media resolución (ver halfTex).
 
 function fog(ctx, y0, y1, w, color, aTop, aBot) {
   const g = ctx.createLinearGradient(0, y0, 0, y1);
@@ -442,20 +448,6 @@ function drawSky(ctx, w, h) {
   fog(ctx, GROUND_Y - 260, GROUND_Y, w, '90,50,40', 0, 0.35);
 }
 
-function drawHills(ctx, w) {
-  const ridge = (base, amp, f1, f2, ph, color) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y);
-    for (let x = 0; x <= w; x += 20) ctx.lineTo(x, base - Math.sin(x * f1 + ph) * amp - Math.sin(x * f2 + ph * 2) * amp * 0.4);
-    ctx.lineTo(w, GROUND_Y);
-    ctx.fill();
-  };
-  ridge(GROUND_Y - 150, 40, 0.005, 0.016, 1.3, '#1d1a2e');
-  fog(ctx, GROUND_Y - 220, GROUND_Y - 100, w, '46,38,66', 0, 0.55);
-  ridge(GROUND_Y - 105, 32, 0.007, 0.02, 4.1, '#15121f');
-}
-
 function pine(ctx, x, base, height, color) {
   ctx.fillStyle = color;
   const layers = 5;
@@ -474,84 +466,6 @@ function pine(ctx, x, base, height, color) {
     ctx.fill();
   }
   ctx.fillRect(x - 3, base - 6, 6, 14);
-}
-
-function treeLayer(ctx, w, count, baseMin, baseMax, hMin, hMax, color) {
-  for (let i = 0; i < count; i++) pine(ctx, rand(0, w), GROUND_Y - rand(baseMin, baseMax), rand(hMin, hMax), color);
-}
-
-function drawTreesFar(ctx, w) {
-  treeLayer(ctx, w, 60, 50, 85, 90, 150, '#17131f');
-  fog(ctx, GROUND_Y - 230, GROUND_Y - 40, w, '50,40,62', 0, 0.5);
-}
-
-function drawTreesMid(ctx, w) {
-  treeLayer(ctx, w, 42, 12, 42, 120, 200, '#0e0b15');
-  fog(ctx, GROUND_Y - 160, GROUND_Y, w, '44,30,36', 0, 0.38);
-}
-
-function drawTreesNear(ctx, w) {
-  treeLayer(ctx, w, 20, -2, 8, 170, 280, '#07050a');
-}
-
-function drawGround(ctx, w, h) {
-  const ground = ctx.createLinearGradient(0, GROUND_Y, 0, h);
-  ground.addColorStop(0, '#33241a');
-  ground.addColorStop(0.25, '#241810');
-  ground.addColorStop(1, '#0e0806');
-  ctx.fillStyle = ground;
-  ctx.fillRect(0, GROUND_Y - 2, w, h - GROUND_Y + 2);
-  fog(ctx, GROUND_Y - 30, GROUND_Y + 2, w, '60,42,34', 0, 0.35);
-  // Tierra: motas, piedritas y hojas secas.
-  for (let i = 0; i < 700; i++) {
-    ctx.globalAlpha = rand(0.1, 0.4);
-    ctx.fillStyle = Math.random() < 0.5 ? '#4f3a29' : '#0a0604';
-    ctx.fillRect(rand(0, w), rand(GROUND_Y, h), rand(1, 4), rand(1, 2));
-  }
-  for (let i = 0; i < 40; i++) {
-    ctx.globalAlpha = rand(0.25, 0.55);
-    ctx.fillStyle = ['#2d2824', '#3a322b', '#1d1916'][i % 3];
-    ctx.beginPath();
-    ctx.ellipse(rand(0, w), rand(GROUND_Y + 8, h), rand(1.5, 4), rand(1, 2.2), 0, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  for (let i = 0; i < 60; i++) {
-    ctx.globalAlpha = rand(0.3, 0.6);
-    ctx.fillStyle = ['#5a3416', '#6b4220', '#3f2a14'][i % 3];
-    ctx.save();
-    ctx.translate(rand(0, w), rand(GROUND_Y + 4, h));
-    ctx.rotate(rand(0, Math.PI));
-    ctx.beginPath();
-    ctx.ellipse(0, 0, rand(2, 4), rand(0.8, 1.5), 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-  // Pasto: manojos de hojas finas sobre la línea del suelo y un poco adelante.
-  ctx.lineCap = 'round';
-  for (let i = 0; i < 260; i++) {
-    const x = rand(0, w);
-    const y = GROUND_Y + rand(-1, 60) * Math.random();
-    const near = (y - GROUND_Y) / 60;
-    ctx.strokeStyle = ['#1a2417', '#232e1c', '#2e3a20', '#141c12'][i % 4];
-    ctx.globalAlpha = rand(0.5, 0.9);
-    ctx.lineWidth = rand(0.8, 1.6);
-    const blades = 2 + ((Math.random() * 3) | 0);
-    for (let b = 0; b < blades; b++) {
-      const bh = rand(5, 12) * (0.7 + near * 0.8);
-      ctx.beginPath();
-      ctx.moveTo(x + b * 2, y);
-      ctx.quadraticCurveTo(x + b * 2 + rand(-3, 3), y - bh * 0.6, x + b * 2 + rand(-5, 5), y - bh);
-      ctx.stroke();
-    }
-  }
-  ctx.globalAlpha = 1;
-}
-
-// Compone las capas ya generadas (una sola vez).
-function drawBackground(scene, ctx) {
-  for (const k of ['bg-sky', 'bg-hills', 'bg-trees-far', 'bg-trees-mid', 'bg-trees-near', 'bg-ground']) {
-    ctx.drawImage(scene.textures.get(k).getSourceImage(), 0, 0);
-  }
 }
 
 // Cielo del amanecer: azul profundo arriba → rosa → naranja/oro en el horizonte (y≈540, a la altura de
@@ -964,22 +878,6 @@ function drawGlowGround(ctx, w, h) {
   ctx.restore();
 }
 
-// Banda de bruma (blanca, se tiñe y se pone con alpha bajo): manchas anchas y suaves.
-function drawMist(ctx, w, h) {
-  for (let i = 0; i < 26; i++) {
-    const x = rand(-60, w + 60), y = h * rand(0.35, 0.65), rx = rand(120, 300), ry = rand(18, h * 0.42);
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.scale(1, ry / rx);
-    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
-    g.addColorStop(0, `rgba(255,255,255,${rand(0.1, 0.22)})`);
-    g.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
-    ctx.restore();
-  }
-}
-
 // Máscara cápsula de una leña (para recortar overlays de leña prendida).
 function logCapsule(ctx, w, h) {
   const r = h * 0.45;
@@ -992,14 +890,14 @@ function drawLogGlowUnder(ctx, w, h) {
   logCapsule(ctx, w, h);
   ctx.clip();
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, 'rgba(255,255,255,0.04)');
-  g.addColorStop(0.5, 'rgba(255,255,255,0.18)');
-  g.addColorStop(1, 'rgba(255,255,255,0.95)');
+  g.addColorStop(0, 'rgba(255,255,255,0)');
+  g.addColorStop(0.7, 'rgba(255,255,255,0)');
+  g.addColorStop(1, 'rgba(255,255,255,0.85)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, w, h);
   for (const x of [0, w]) {
-    const e = ctx.createRadialGradient(x, h / 2, 1, x, h / 2, h * 1.1);
-    e.addColorStop(0, 'rgba(255,255,255,0.9)');
+    const e = ctx.createRadialGradient(x, h / 2, 1, x, h / 2, h * 0.75);
+    e.addColorStop(0, 'rgba(255,255,255,0.75)');
     e.addColorStop(1, 'rgba(255,255,255,0)');
     ctx.fillStyle = e;
     ctx.fillRect(0, 0, w, h);
@@ -1250,55 +1148,67 @@ function drawSkyDeep(ctx, w, h) {
 }
 
 const LIT = {
-  hills: { ridge: ['#9fbfa6', '#86ad92'], fog: '170,200,190' },
-  far: '#4f8068',
-  mid: '#356650',
+  hills: { ridge: ['#b6d2c2', '#9cbfab'] },
+  far: '#78a898',
+  mid: '#427f60',
   near: '#1f4a30',
   ground: ['#7a6a48', '#5a4c34', '#3a3020'],
 };
 
+function ridgeFill(ctx, w, base, amp, f1, f2, ph, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y);
+  for (let x = 0; x <= w; x += 20) ctx.lineTo(x, base - Math.sin(x * f1 + ph) * amp - Math.sin(x * f2 + ph * 2) * amp * 0.4);
+  ctx.lineTo(w, GROUND_Y);
+  ctx.fill();
+}
+
+// Capas opacas: la perspectiva atmosférica va en el color (más claro y azulado a lo lejos), no en velos
+// translúcidos, para que ninguna capa se vea a través de otra.
 function drawHillsLit(ctx, w) {
-  const ridge = (base, amp, f1, f2, ph, color) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(0, GROUND_Y);
-    for (let x = 0; x <= w; x += 20) ctx.lineTo(x, base - Math.sin(x * f1 + ph) * amp - Math.sin(x * f2 + ph * 2) * amp * 0.4);
-    ctx.lineTo(w, GROUND_Y);
-    ctx.fill();
-  };
-  ridge(GROUND_Y - 150, 40, 0.005, 0.016, 1.3, LIT.hills.ridge[0]);
-  fog(ctx, GROUND_Y - 220, GROUND_Y - 100, w, LIT.hills.fog, 0, 0.55);
-  ridge(GROUND_Y - 105, 32, 0.007, 0.02, 4.1, LIT.hills.ridge[1]);
+  ridgeFill(ctx, w, GROUND_Y - 150, 40, 0.005, 0.016, 1.3, LIT.hills.ridge[0]);
+  ridgeFill(ctx, w, GROUND_Y - 105, 32, 0.007, 0.02, 4.1, LIT.hills.ridge[1]);
 }
 
-// Pino con volumen: lado izquierdo algo más claro (luz) y base más oscura, para que lea con luz de día.
-function pineLit(ctx, x, base, height, color) {
-  pine(ctx, x, base, height, color);
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-atop';
-  const g = ctx.createLinearGradient(x - height * 0.15, 0, x + height * 0.15, 0);
-  g.addColorStop(0, 'rgba(255,255,255,0.12)');
+// Pino con volumen, dibujado en un lienzo propio (la luz y la bruma de la base no tocan a los vecinos):
+// lado izquierdo algo más claro, derecho más oscuro y base aclarada por la bruma. Siempre opaco.
+function pineLit(ctx, x, base, height, color, haze) {
+  const tw = Math.ceil(height * 0.7) + 8, th = Math.ceil(height * 1.3) + 22, by = th - 14;
+  const c = document.createElement('canvas');
+  c.width = tw; c.height = th;
+  const t = c.getContext('2d');
+  pine(t, tw / 2, by, height, color);
+  t.globalCompositeOperation = 'source-atop';
+  const g = t.createLinearGradient(tw / 2 - height * 0.15, 0, tw / 2 + height * 0.15, 0);
+  g.addColorStop(0, 'rgba(255,255,255,0.14)');
   g.addColorStop(0.5, 'rgba(255,255,255,0)');
-  g.addColorStop(1, 'rgba(0,0,0,0.22)');
-  ctx.fillStyle = g;
-  ctx.fillRect(x - height * 0.4, base - height, height * 0.8, height + 14);
-  ctx.restore();
+  g.addColorStop(1, 'rgba(0,0,0,0.24)');
+  t.fillStyle = g;
+  t.fillRect(0, 0, tw, th);
+  const hz = t.createLinearGradient(0, by - height * 0.5, 0, by + 8);
+  hz.addColorStop(0, `rgba(${haze},0)`);
+  hz.addColorStop(1, `rgba(${haze},0.32)`);
+  t.fillStyle = hz;
+  t.fillRect(0, 0, tw, th);
+  ctx.drawImage(c, x - tw / 2, base - by);
 }
 
-function treeLayerLit(ctx, w, count, baseMin, baseMax, hMin, hMax, color) {
-  for (let i = 0; i < count; i++) pineLit(ctx, rand(0, w), GROUND_Y - rand(baseMin, baseMax), rand(hMin, hMax), color);
+function treeLayerLit(ctx, w, count, baseMin, baseMax, hMin, hMax, color, haze) {
+  for (let i = 0; i < count; i++) pineLit(ctx, rand(0, w), GROUND_Y - rand(baseMin, baseMax), rand(hMin, hMax), color, haze);
 }
 
+// Una loma del color de la capa tapa los troncos de la base: no quedan troncos sueltos sobre el suelo.
 function drawTreesFarLit(ctx, w) {
-  treeLayerLit(ctx, w, 60, 50, 85, 90, 150, LIT.far);
-  fog(ctx, GROUND_Y - 230, GROUND_Y - 40, w, '170,200,190', 0, 0.45);
+  treeLayerLit(ctx, w, 60, 50, 85, 90, 150, LIT.far, '200,225,215');
+  ridgeFill(ctx, w, GROUND_Y - 92, 8, 0.011, 0.03, 2.2, LIT.far);
 }
 function drawTreesMidLit(ctx, w) {
-  treeLayerLit(ctx, w, 42, 12, 42, 120, 200, LIT.mid);
-  fog(ctx, GROUND_Y - 160, GROUND_Y, w, '150,180,160', 0, 0.3);
+  treeLayerLit(ctx, w, 42, 12, 42, 120, 200, LIT.mid, '170,205,185');
+  ridgeFill(ctx, w, GROUND_Y - 48, 6, 0.013, 0.035, 0.7, LIT.mid);
 }
 function drawTreesNearLit(ctx, w) {
-  treeLayerLit(ctx, w, 20, -2, 8, 170, 280, LIT.near);
+  treeLayerLit(ctx, w, 20, -2, 8, 170, 280, LIT.near, '120,170,140');
 }
 
 function drawGroundLit(ctx, w, h) {
@@ -1348,9 +1258,9 @@ function drawGroundLit(ctx, w, h) {
 // Color con el que se ve cada capa "-lit" en cada hora (el mismo que tenían las capas de noche originales).
 // layerTint(capa, fase) devuelve el entero para setTint; capa: hills|far|mid|near|ground;
 // fase: day|dusk|dawn|night|deep. Cada canal del destino es ≤ al de la base, por eso se puede con tint.
-const LIT_BASE = { hills: '#86ad92', far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] };
+const LIT_BASE = { hills: LIT.hills.ridge[1], far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] };
 const LIT_TARGET = {
-  day: { hills: '#86ad92', far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] },
+  day: { hills: LIT.hills.ridge[1], far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] },
   dusk: { hills: '#5a3c58', far: '#3e2c4a', mid: '#2a1c34', near: '#140c1a', ground: '#4a2e22' },
   dawn: { hills: '#6a5062', far: '#4a3a52', mid: '#32283e', near: '#1a1424', ground: '#4e3a2c' },
   night: { hills: '#1d1a2e', far: '#17131f', mid: '#0e0b15', near: '#07050a', ground: '#241810' },
@@ -1438,7 +1348,27 @@ export function createTextures(scene) {
     }
   });
   radial(scene, 'glow', 256, [[0, 'rgba(255,190,110,1)'], [0.25, 'rgba(255,140,60,0.55)'], [0.6, 'rgba(200,70,20,0.15)'], [1, 'rgba(0,0,0,0)']]);
-  radial(scene, 'orb', 40, [[0, 'rgba(255,255,230,1)'], [0.25, 'rgba(255,210,90,1)'], [0.55, 'rgba(255,120,30,0.5)'], [1, 'rgba(255,80,0,0)']]);
+  // Chispa coleccionable: destello de 4 puntas con núcleo caliente y un halo mínimo (antes era una bola con halo).
+  canvasTex(scene, 'orb', 40, 40, (ctx, w, h) => {
+    const c = w / 2;
+    const halo = ctx.createRadialGradient(c, c, 0, c, c, c * 0.55);
+    halo.addColorStop(0, 'rgba(255,170,60,0.55)');
+    halo.addColorStop(1, 'rgba(255,120,30,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = 'rgba(255,215,110,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(c, 1); ctx.quadraticCurveTo(c + 2.5, c - 2.5, w - 1, c);
+    ctx.quadraticCurveTo(c + 2.5, c + 2.5, c, h - 1);
+    ctx.quadraticCurveTo(c - 2.5, c + 2.5, 1, c);
+    ctx.quadraticCurveTo(c - 2.5, c - 2.5, c, 1);
+    ctx.fill();
+    const core = ctx.createRadialGradient(c, c, 0, c, c, 6);
+    core.addColorStop(0, 'rgba(255,255,240,1)');
+    core.addColorStop(1, 'rgba(255,230,140,0)');
+    ctx.fillStyle = core;
+    ctx.fillRect(c - 7, c - 7, 14, 14);
+  });
 
   canvasTex(scene, 'drop', 2, 16, (ctx, w, h) => {
     const g = ctx.createLinearGradient(0, 0, 0, h);
@@ -1448,7 +1378,7 @@ export function createTextures(scene) {
     ctx.fillRect(0, 0, w, h);
   });
 
-  canvasTex(scene, 'vignette', W, H, (ctx, w, h) => {
+  halfTex(scene, 'vignette', (ctx, w, h) => {
     const g = ctx.createRadialGradient(w / 2, h * 0.62, 180, w / 2, h * 0.62, w * 0.7);
     g.addColorStop(0, 'rgba(0,0,0,0)');
     g.addColorStop(1, 'rgba(0,0,0,0.92)');
@@ -1463,14 +1393,8 @@ export function createTextures(scene) {
   }
 
   canvasTex(scene, 'bg-sky', W, H, drawSky);
-  canvasTex(scene, 'bg-hills', W, H, drawHills);
-  canvasTex(scene, 'bg-trees-far', W, H, drawTreesFar);
-  canvasTex(scene, 'bg-trees-mid', W, H, drawTreesMid);
-  canvasTex(scene, 'bg-trees-near', W, H, drawTreesNear);
-  canvasTex(scene, 'bg-ground', W, H, drawGround);
-  canvasTex(scene, 'bg', W, H, (ctx) => drawBackground(scene, ctx));
-  canvasTex(scene, 'sky-dawn', W, H, drawDawnSky);
-  canvasTex(scene, 'dawn-rays', W, H, drawDawnRays);
+  halfTex(scene, 'sky-dawn', drawDawnSky);
+  halfTex(scene, 'dawn-rays', drawDawnRays);
 
   // Pozos por tamaño (C4). Tiers: 0-1 anillo (stone0..3), 2-3 piedra trabajada, 4-5 adobe, 6-7 ceremonial.
   canvasTex(scene, 'hewn0', 56, 38, (ctx, w, h) => drawBlock(ctx, w, h, 28, 34, 0));
@@ -1596,7 +1520,6 @@ export function createTextures(scene) {
   canvasTex(scene, 'flame-base', 160, 220, drawFlameBase);
   // Luz
   canvasTex(scene, 'glow-ground', 512, 128, drawGlowGround);
-  canvasTex(scene, 'mist', W, 160, drawMist);
   // Leña prendida / carbonizada (128×32, escalar a largo×grosor de la leña)
   canvasTex(scene, 'log-glow-under', 128, 32, drawLogGlowUnder);
   canvasTex(scene, 'log-cracks', 128, 32, drawLogCracks);
@@ -1608,8 +1531,8 @@ export function createTextures(scene) {
   canvasTex(scene, 'roof-thatch', 128, 36, drawRoofThatch);
   canvasTex(scene, 'roof-support', 10, 64, drawRoofSupport);
   // Ciclo de luz
-  canvasTex(scene, 'sky-day', W, H, drawSkyDay);
-  canvasTex(scene, 'sky-dusk', W, H, drawSkyDusk);
+  halfTex(scene, 'sky-day', drawSkyDay);
+  halfTex(scene, 'sky-dusk', drawSkyDusk);
   canvasTex(scene, 'sky-deep', W, H, drawSkyDeep);
   canvasTex(scene, 'bg-hills-lit', W, H, drawHillsLit);
   canvasTex(scene, 'bg-trees-far-lit', W, H, drawTreesFarLit);
