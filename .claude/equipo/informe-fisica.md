@@ -255,3 +255,17 @@ El problema no era la conducción: el fósforo (1,8 s) no alcanza para secar le�
 ### Notas
 - Partida respaldada y restaurada, `state.locked = true`, `localStorage` idéntico, pestaña cerrada. `node --check` OK (GameScene, Ui, Fire, medir-estructuras).
 - Pendiente para el tester: la etiqueta "Tipi n/4" y los flotantes con dedo real; para progresión: con lluvia el fósforo no prende en pozos grandes.
+
+
+## C5 fase 1 · Tocar la leña y separar las ranuras
+
+Archivos: GameScene.js, nuevo `js/scenes/SlotController.js`, Fire.js. Arnés reutilizable: `.claude/equipo/harness-fisica.js` (define `window.H` con `put`/`up`/`shot`).
+
+1. **Corte**: `updateSlots`, `tipiNotice`, `slotPoolGet/Trim`, `updateSlotShadows`, `slotMagnetTick`, `onSlotSnap` y `drawAimGhost` pasaron a `SlotController` (`scene.slotsCtl`). GameScene queda en 1.550 líneas. Sin cambio de comportamiento: arrastre real con ranura → `base`, 3 siluetas, encaja, sombra de contacto. Medición igual que antes (tipi +22 %, cabaña +27 % sobre la pila).
+2. **Colapso en cascada** (`Fire.startWobble/stepWobble`, `reevalSlots`): al perder el apoyo, la leña tiembla 0,26–0,36 s con chispas y humo en el contacto y recién entonces cae con un empujón hacia adentro del pozo; lo que se apoyaba en ella sigue después (cascada natural). Emite `structure:collapse {pit}` (una vez por pozo cada 2,5 s). Probado en una cabaña de 5: al apagarse la base izquierda, evento a 0,18 s, la pila sobre ella cae a 0,52 s, el puente a 0,97 s; la otra pila queda en su lugar. Flotante y sonido: dopamina.
+3. **Encaje con caída** (`snapLog`/`stepSnap`): duración 90–220 ms según la distancia (57 px → 193 ms) y asentamiento de 90 ms (se hunde 2 px y vuelve). Con movimiento reducido es instantáneo.
+4. **Agarre** (`logAt`): si el punto cae dentro de varias leñas gana la más alta en pantalla; si no, la más cercana. Alcance táctil 28 px (mouse 8). Resalte con contorno pulsante bajo el mouse (`SlotController.drawHover`, `scene.hoverLog`): no aparece arrastrando, ni en touch, ni con efectos reducidos.
+5. **Soltar sin ranura** (`endDrag`): dentro de un pozo, 0,5 s de `frictionAir` 0,1 y giro limitado; una rama soltada a 220 px sobre el pozo bajó y quedó quieta (645,641 → 646,642) sin rebotar.
+6. **H8**: las leñas iniciales no ocupan la ranura de base; la silueta rellena se perdía dentro de la llama. Ahora cada silueta tiene un **contorno claro** (`drawOutlines`) y en el primer arrastre se ve el rectángulo de la base junto al X del tipi (comprobado con captura). No moví las leñas iniciales.
+
+No pude verificar: táctil real (alcance de 28 px y que el resalte no aparezca), el colapso con un incendio natural (en la prueba forcé la ceniza de una base; quemándose todas a la vez casi no hay cascada), ni cómo se ve el resalte en vivo (el panel oculto no repinta; usé `toDataURL`). Partida: localStorage estaba vacío; lo dejé vacío, `state.locked = true`, pestaña cerrada. `node --check` OK.

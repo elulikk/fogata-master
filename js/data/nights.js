@@ -32,6 +32,7 @@ export function freshNight() {
     fails: 0,
     coldLvl: 0,     // 0..1: llegar a 1 es perder la noche
     inGoal: 0,      // segundos de esta noche con la meta cumplida
+    rateSum: 0,     // calor/s acumulado durante la noche (para el margen sobre la meta)
     startTotal: 0,  // calor total al empezar la noche
     freeCard: false, // carta gratis pendiente por mostrar
     deficitT: 0,    // segundos seguidos bajo la meta (acelera el frío)
@@ -52,9 +53,11 @@ export function nightGoalNow(night, mods) {
   return nightGoal(night.n, mods) * (night.gustT > 0 ? GUST_BOOST : 1);
 }
 
-// Ceniza que da amanecer en la noche n.
-export function dawnAsh(n, mods) {
-  return Math.round((2 + n) * (mods?.ashBonus ?? 1));
+// Ceniza que da amanecer en la noche n. `margin` (0..) es cuánto pasó el ritmo medio la meta:
+// con 100% de margen la ceniza sube 50%.
+export function dawnAsh(n, mods, margin = 0) {
+  const bonus = 1 + 0.5 * Math.min(1.5, Math.max(0, margin || 0));
+  return Math.round((2 + n) * bonus * (mods?.ashBonus ?? 1));
 }
 
 // Cuánto frío se ve (0..1): sirve para tintar la escena.
@@ -68,7 +71,7 @@ export function coldOf(night) {
 }
 
 // Avanza el reloj de la noche. Devuelve los eventos ocurridos:
-// { type: 'dusk' } | { type: 'start' } | { type: 'gust', dur } | { type: 'dawn', success, ratio }
+// { type: 'dusk' } | { type: 'start' } | { type: 'gust', dur } | { type: 'dawn', success, ratio, margin }
 // (un fallo es { type: 'dawn', success: false, failed: true }).
 export function stepNight(night, dt, rate, mods) {
   const events = [];
@@ -84,6 +87,7 @@ export function stepNight(night, dt, rate, mods) {
     night.t = 0;
     night.coldLvl = 0;
     night.inGoal = 0;
+    night.rateSum = 0;
     night.deficitT = 0;
     night.gustT = 0;
     night.gustIn = GUST_EVERY[0] + Math.random() * (GUST_EVERY[1] - GUST_EVERY[0]);
@@ -106,6 +110,7 @@ export function stepNight(night, dt, rate, mods) {
       }
     }
     const goal = nightGoalNow(night, mods);
+    night.rateSum = (night.rateSum || 0) + rate * dt;
     if (rate >= goal) {
       night.inGoal += dt;
       night.deficitT = 0;
@@ -120,7 +125,8 @@ export function stepNight(night, dt, rate, mods) {
     const failed = night.coldLvl >= 1;
     if (failed || night.t >= NIGHT) {
       const ratio = night.inGoal / Math.max(1, night.t);
-      events.push({ type: 'dawn', success: !failed, failed, ratio, cardFree: !failed && ratio >= GOOD_RATIO });
+      const margin = Math.max(0, (night.rateSum / Math.max(1, night.t)) / nightGoal(night.n, mods) - 1);
+      events.push({ type: 'dawn', success: !failed, failed, ratio, margin, cardFree: !failed && ratio >= GOOD_RATIO });
       night.phase = 'day';
       night.t = 0;
       night.coldLvl = 0;

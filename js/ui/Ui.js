@@ -61,6 +61,19 @@ function sizeBarHtml(i) {
 }
 const CONFIRM_MS = 3000;
 
+// Tutorial contextual: cada paso avanza al lograr la acción (no por tiempo). Si un paso no se
+// cumple en `ttl` segundos se da por visto para no insistir. `minSize`: el paso espera ese tamaño de pozo.
+const TUT_KEY = 'fogata-ui-tut';
+const TUT_STEPS = [
+  { id: 'drag', text: 'Arrastrá una leña hasta el pozo', on: { grab: 'Llevala al pozo y soltala' }, done: 'drop', ttl: 45 },
+  { id: 'snap', text: 'Soltala sobre una silueta: encaja sola', done: 'snap', ttl: 45 },
+  { id: 'ignite', text: 'Tocá la leña para prenderla con un fósforo', done: 'ignite', guide: 'matches', ttl: 30 },
+  { id: 'tipi', text: 'Inclinala ±60° y soltala al costado: tipi', touch: 'Inclinala con ↺ ↻ y soltala al costado: tipi', on: { rotate: 'Ahora soltala al costado del pozo' }, done: 'structure:tipi', ttl: 60 },
+  { id: 'cabana', text: 'Dos bases y un puente encima: cabaña', done: 'structure:cabana', minSize: 3, ttl: 60 },
+];
+// Avisos urgentes de la escena: ganan sobre el tutorial.
+const URGENT = /apag[óo]|fósforos|ahog|brasas|bosque|lleno/i;
+
 // Efecto "antes → después": si no hay valor previo ('—' o vacío), se muestra solo el "después".
 const sinAntes = (v) => v == null || ['', '—', '-'].includes(String(v).trim());
 const efectoTexto = (e) => (sinAntes(e.before) ? `${e.after}` : `${e.before} → ${e.after}`);
@@ -96,6 +109,16 @@ export class Ui {
     this.rotHintUntil = 0;
     this.dragging = false;
     this.pitEls = [];
+    this.tutOn = false;
+    this.tutDone = this.readTut();
+    this.tutStep = null;
+    this.tutT0 = 0;
+    this.tutSize = 0;
+    this.tutKind = '';
+    this.lastHint = '';
+    this.goalSig = '';
+    this.goalAt = 0;
+    this.guided = null;
     this.curNotice = null; // logro/evento que se ve ahora en #achv
     this.achvTimer = 0;
     this.achvOutTimer = 0;
@@ -111,7 +134,7 @@ export class Ui {
     this.setupKeys();
     this.setupRotate();
     // Avisos en cola: salen de a uno cuando no hay ningún modal abierto.
-    setInterval(() => this.pump(), 200);
+    setInterval(() => { this.pump(); if (!this.modalOpen) this.tutTick(); }, 200);
     // Pantalla de título al abrir el juego (la pausa se aplica cuando la escena hace bind).
     this.mm.open('title');
   }
@@ -147,6 +170,8 @@ export class Ui {
     $('btn-forest').addEventListener('click', () => this.handlers.forest?.());
     for (const tab of Object.keys(TABS)) $(TABS[tab].btn).addEventListener('click', () => this.togglePanel(tab));
     $('panel-close').addEventListener('click', () => this.closePanel());
+    $('calor-rate').addEventListener('click', () => $('rate-pop').classList.toggle('open'));
+    $('calor-rate').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rate-pop').classList.toggle('open'); } });
     $('btn-mute').addEventListener('click', () => this.toggleMute());
     $('btn-menu').addEventListener('click', () => this.toggleMenu(true));
     $('btn-resume').addEventListener('click', () => this.mm.back());
@@ -306,10 +331,96 @@ export class Ui {
     $('rot').classList.toggle('hidden', !(this.dragging && this.touchMode));
   }
 
+  // --- Tutorial contextual ---
+
+  readTut() {
+    try { return new Set(JSON.parse(localStorage.getItem(TUT_KEY) || '[]')); } catch (err) { return new Set(); }
+  }
+
+  saveTut() {
+    try { localStorage.setItem(TUT_KEY, JSON.stringify([...this.tutDone])); } catch (err) { /* sin storage */ }
+  }
+
+  // Primer paso pendiente cuyo requisito (tamaño de pozo) ya se cumple.
+  nextTutStep() {
+    return TUT_STEPS.find((s) => !this.tutDone.has(s.id) && (!s.minSize || this.tutSize >= s.minSize)) || null;
+  }
+
+  get tutActive() { return this.tutOn && !!this.tutStep; }
+
+  // Eventos de la escena: 'load' {progress, size} (arranca o descarta), 'restart', 'grab', 'drop', 'snap',
+  // 'ignite', 'rotate', 'structure:tipi', 'structure:cabana', 'pit:grow' {size}.
+  tutorial(event, data = {}) {
+    if (event === 'restart') {
+      this.tutDone = new Set();
+      this.saveTut();
+      this.tutOn = true;
+    } else if (event === 'load') {
+      this.tutSize = data.size | 0;
+      if (data.progress) TUT_STEPS.forEach((s) => this.tutDone.add(s.id));
+      else this.tutOn = true;
+      if (data.progress) this.saveTut();
+    } else if (event === 'pit:grow') {
+      this.tutSize = Math.max(this.tutSize, data.size | 0);
+    } else if (this.tutOn) {
+      const cur = this.tutStep;
+      if (cur && cur.on && cur.on[event] && event !== cur.done) {
+        this.tutKind = event;
+      } else {
+        // Un evento cumple su paso y todos los anteriores (soltar sobre una silueta ya incluye "soltar").
+        const i = TUT_STEPS.findIndex((s) => s.done === event);
+        if (i >= 0) {
+          TUT_STEPS.slice(0, i + 1).forEach((s) => this.tutDone.add(s.id));
+          this.tutKind = '';
+          this.saveTut();
+        }
+      }
+    }
+    this.tutRefresh();
+  }
+
+  // Recalcula el paso actual y su texto/resalte; reaplica la pista vigente.
+  tutRefresh() {
+    const step = this.tutOn ? this.nextTutStep() : null;
+    if (step !== this.tutStep) {
+      this.tutStep = step;
+      this.tutT0 = performance.now();
+      this.tutKind = '';
+    }
+    this.guide(step && step.guide ? step.guide : null);
+    this.setHint(this.lastHint);
+  }
+
+  tutText() {
+    const s = this.tutStep;
+    if (!s) return '';
+    if (this.tutKind && s.on && s.on[this.tutKind]) return s.on[this.tutKind];
+    return this.touchMode && s.touch ? s.touch : s.text;
+  }
+
+  // Vence el tiempo de un paso que el jugador no cumple: se da por visto.
+  tutTick() {
+    const s = this.tutStep;
+    if (s && performance.now() - this.tutT0 > s.ttl * 1000) {
+      this.tutDone.add(s.id);
+      this.saveTut();
+      this.tutRefresh();
+    }
+  }
+
+  // Pulso sobre un elemento (id) para decir dónde mirar; guide(null) lo quita.
+  guide(id) {
+    if (this.guided === id) return;
+    if (this.guided) $(this.guided)?.classList.remove('guide');
+    this.guided = id || null;
+    if (id) $(id)?.classList.add('guide');
+  }
+
   // Pista de rotación, una sola vez por jugador. Persistencia: handlers.settingSeen?.('rotateHint')
   // debe devolver true si ya se mostró; si no lo marcó, lo marca y devuelve false.
   // Sin handler cae a localStorage.
   hintRotate(isTouch = this.touchMode) {
+    if (this.tutActive) return false; // el tutorial ya enseña a encajar y rotar
     let seen;
     if (this.handlers.settingSeen) seen = this.handlers.settingSeen('snapHint') === true;
     else {
@@ -336,7 +447,7 @@ export class Ui {
       if (!el) {
         el = document.createElement('div');
         el.className = 'pit-tag';
-        el.innerHTML = '<span class="t-name"></span><span class="t-bar"><b></b></span><span class="t-num"></span><span class="t-st"></span><span class="t-warn"></span>';
+        el.innerHTML = '<span class="t-name"></span><span class="t-bar"><b></b></span><span class="t-num"></span><span class="t-st"></span><span class="t-bonus"></span><span class="t-slots"></span><span class="t-warn"></span>';
         box.appendChild(el);
         this.pitEls[idx] = el;
       }
@@ -355,6 +466,9 @@ export class Ui {
       if (legs > 0 && legs < 4 && pieces === 0) st = `Tipi ${legs}/4`;
       else if (s && s.type === 'cabana' && pieces > 0 && pieces < 5 && s.quality > 0.05) st = `Cabaña ${pieces}/5 ${Math.round(s.quality * 100)}%`;
       set('.t-st', st);
+      // bonus = fracción de calor extra de la estructura (0.22 → "+22%"); acepta también un texto.
+      set('.t-bonus', typeof p.bonus === 'string' ? p.bonus : num(p.bonus) && p.bonus > 0.004 ? `+${Math.round(p.bonus * 100)}%` : '');
+      set('.t-slots', num(p.slotsTotal) && p.slotsTotal > 0 ? `${num(p.slotsUsed) ? p.slotsUsed : 0}/${p.slotsTotal} ranuras` : '');
       set('.t-warn', num(p.stackPenalty) && p.stackPenalty > 0.05 ? 'ahogado: armá tipi/cabaña' : '');
       const bar = el.querySelector('.t-bar');
       bar.classList.toggle('hidden', !hasLoad);
@@ -590,9 +704,13 @@ export class Ui {
       </div>`).join('');
   }
 
-  setHint(text, force = false) {
+  // Pista de abajo. Los avisos urgentes (se apagó, se ahoga…) ganan; si no, manda el paso del tutorial.
+  // `urgent` lo puede decir la escena; por defecto se deduce del texto.
+  setHint(text, force = false, urgent = URGENT.test(text || '')) {
     const el = $('hint');
+    this.lastHint = force ? this.lastHint : text;
     if (!force && performance.now() < this.rotHintUntil) return;
+    if (!force && this.tutStep && !(text && urgent)) text = this.tutText();
     if (el.dataset.text === text) return;
     el.dataset.text = text;
     el.style.opacity = 0;
@@ -617,6 +735,7 @@ export class Ui {
     const ng = v.night && v.night.phase === 'night' && num(v.night.goal) ? v.night.goal : 0;
     this.nightGoal = ng;
     this.updateRate(v.rate, v.rateInfo);
+    this.updateGoal();
 
     if (v.levelOn) this.updateLevel(v);
 
@@ -656,6 +775,34 @@ export class Ui {
     else if (info && Array.isArray(info.parts)) tip = info.parts.map((p) => (p.text ? `${p.label}: ${p.text}` : p.label)).join('\n');
     else if (info) tip = info.text || (Array.isArray(info.lines) ? info.lines.join('\n') : '');
     if (el.title !== tip) el.title = tip;
+    // Desglose descubrible: el ⓘ junto al ritmo abre/cierra la lista (también al pasar el mouse).
+    const parts = info && Array.isArray(info.parts) ? info.parts : [];
+    el.classList.toggle('has-info', parts.length > 0);
+    const html = parts.map((p) => `<div><span>${p.label}</span><b>${p.text || ''}</b></div>`).join('');
+    const pop = $('rate-pop');
+    if (pop.dataset.html !== html) {
+      pop.dataset.html = html;
+      pop.innerHTML = html;
+    }
+  }
+
+  // Próximo objetivo (handlers.nextGoal → {icon, text, progress}); si no existe, no se muestra nada.
+  updateGoal() {
+    const now = performance.now();
+    if (now - this.goalAt < 500) return;
+    this.goalAt = now;
+    let g = null;
+    try { g = this.handlers.nextGoal?.() || null; } catch (err) { g = null; }
+    const box = $('goal');
+    const sig = g ? `${g.icon}|${g.text}|${num(g.progress) ? Math.round(g.progress * 100) : -1}` : '';
+    if (sig === this.goalSig) return;
+    this.goalSig = sig;
+    box.classList.toggle('hidden', !g);
+    if (!g) return;
+    box.querySelector('.g-txt').textContent = `${g.icon || '🎯'} ${g.text}`;
+    const bar = box.querySelector('.g-bar');
+    bar.classList.toggle('hidden', !num(g.progress));
+    if (num(g.progress)) bar.firstChild.style.width = `${Math.round(Math.max(0, Math.min(1, g.progress)) * 100)}%`;
   }
 
   updateLevel(v) {
@@ -985,7 +1132,7 @@ export class Ui {
       const lines = [['Calor de la noche', fmt(d.calor || 0), '🔥']];
       if (num(d.goal)) lines.push(['Meta', `${d.goal.toFixed(1)} /s`, '🎯']);
       if (d.success) lines.push(['Cenizas ganadas', `+${d.ash}`, '🪦'], ['Cenizas disponibles', fmt(d.ashAvail ?? d.ashTotal ?? 0), '🪦'], ['Cenizas en total', fmt(d.ashTotal || 0), '🪦']);
-      if (d.cardFree) lines.push(['Carta gratis', 'te espera', '🃏']);
+      if (d.cardFree) lines.push(['Premio del alba', 'elegís 1 carta gratis', '🃏']);
       return {
         ...d,
         title: d.success ? `¡Amaneció! Noche ${d.n} superada` : `El frío ganó la noche ${d.n}`,
@@ -1064,6 +1211,13 @@ export class Ui {
     this.toastQ = [];
     this.noticeQ = [];
     this.eventCb = null;
+    this.tutOn = false;
+    this.tutStep = null;
+    this.tutDone = new Set();
+    this.saveTut();
+    this.guide(null);
+    this.goalSig = '';
+    $('goal').classList.add('hidden');
   }
 
   get modalOpen() {

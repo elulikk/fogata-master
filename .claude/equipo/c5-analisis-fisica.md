@@ -1,0 +1,20 @@
+# C5 · Análisis de física: tocar la leña (solo lectura, sin cambios de código)
+
+Esfuerzo: S ≤ 2 h, M ≤ 1 día, L más. Archivos y funciones según el código actual.
+
+1. **Colapso lindo al quemarse una estructura (hacer primero)**. Hoy, cuando se quema un soporte, `Fire.reevalSlots` (4 Hz) llama a `unsnap(l,'support')` y la leña pasa de estática a dinámica de golpe, con sonido pero sin preparación. Cambio para el jugador: primero un temblor corto (0,25 s) y brasas en el apoyo, y la leña se suelta con un empujón pequeño hacia adentro del pozo, en cascada de abajo hacia arriba (60–90 ms entre piezas), más un flotante "¡Se derrumbó!". Archivos: `Fire.js` (`reevalSlots`, `unsnap`, nuevo estado `l.slot.wobbleT`), `GameScene.js` (`setupFeelEvents`, evento `log:unsnap` con `reason:'support'`). Riesgo bajo: no toca la física de ranuras ni las fórmulas de calor. Esfuerzo: M.
+
+2. **Soltar con ranura: "caída" en vez de teletransporte**. `snapLog` mueve el leño con una animación de 150 ms hacia la ranura aunque esté a 70 px. Cambio: la animación dura según la distancia (90–220 ms), con un rebote mínimo de asentamiento y la sombra de contacto que ya existe. Esto hace que el encaje se sienta físico, no magnético. Archivos: `Fire.js` (`snapLog`, `stepSnap`), `GameScene.js` (`onSlotSnap`). Riesgo bajo (la animación va por dt). Esfuerzo: S.
+
+3. **Agarrar: elegir la leña correcta y levantarla de la pila**. `logAt(x,y)` toma una sola leña por distancia; en una pila densa o una estructura se saca la de abajo o la equivocada. Cambio: priorizar la que está más arriba y a la vista (mayor `y` menor), resaltar la leña bajo el cursor antes de hacer clic, y agrandar el área táctil a 28 px de radio. Archivos: `GameScene.js` (`logAt`, `startDrag`, `setupInput`), `Log.js` (borde de resaltado). Riesgo medio (cambia el feeling de agarre; probar con mouse y dedo). Esfuerzo: M.
+
+4. **Apilar a mano sin ranura: estabilidad que se note**. Una pila suelta cae bien pero no avisa si va a derrumbarse. Cambio: un indicador sutil (la sombra de contacto se vuelve roja y la pila "respira" 2 px) cuando `stackPenalty` o un montón inestable pasa un umbral, y el aviso "ahogado" existente se muestra también sobre la leña afectada. Archivos: `Fire.js` (`updateStructures`, `detectStructure`), `GameScene.js` (`updateSlotShadows`). Riesgo bajo. Esfuerzo: S–M.
+
+5. **Soltar sin ranura y sacar leña del pozo**. Hoy, soltar fuera de radio deja la leña en física libre (puede salir rebotando) y sacarla de un pozo requiere arrastrarla afuera. Cambio: (a) soltar con menos de 8 px/s de velocidad la deja "asentarse" con amortiguación extra (`frictionAir` alto 0,4 s); (b) un gesto de doble clic o arrastre rápido hacia arriba la devuelve al rack con el flotante "↩" ya existente. Archivos: `GameScene.js` (`endDrag`, `returnLog`, `setupInput`). Riesgo medio (conflicto con el gesto de rotar en táctil). Esfuerzo: M.
+
+**Deuda técnica: un solo corte de bajo riesgo.** Extraer de `GameScene.js` (1.730 líneas) todo el bloque de ranuras a `js/scenes/SlotController.js` (o `js/objects/SlotView.js`): `updateSlots`, `tipiNotice`, `slotPoolGet`, `slotPoolTrim`, `updateSlotShadows`, `slotMagnetTick`, `onSlotSnap` y `drawAimGhost` (~170 líneas contiguas, líneas 700–870). Es una clase que recibe la escena en el constructor y expone esos métodos; en `GameScene` quedan delegaciones de una línea (`this.slotsCtl.update()`), así nada del resto del archivo cambia. Ganancia: física/arte/dopamina dejan de pisarse en un archivo que todos tocan. Hacerlo con el juego quieto (el tester no debe estar jugando) y verificarlo con `node --check` y un arrastre real con ranura. Esfuerzo: S–M.
+
+**Resumen (3 líneas)**
+1. Prioridad: colapso en cascada al quemarse una estructura (M, riesgo bajo), luego encaje con caída por distancia (S).
+2. Después: agarre más preciso en pilas (M), aviso de pila inestable (S–M) y soltar/sacar leña con gestos (M).
+3. Corte de deuda recomendado: mover el bloque de ranuras de `GameScene.js` a su propio archivo, con delegaciones de una línea; nada de esto se tocó, solo análisis.

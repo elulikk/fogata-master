@@ -60,9 +60,9 @@ export const META = [
     effect: (n) => ({ label: 'Pozo inicial', before: ['Fogatita', 'Fogata', 'Fogón', 'Hogar'][n], after: ['Fogata', 'Fogón', 'Hogar', 'Hogar'][n] }),
   },
   {
-    id: 'arquitecto', icon: '📐', name: 'Arquitecto', desc: '+15% al bonus de las estructuras.', max: 3,
+    id: 'arquitecto', icon: '📐', name: 'Arquitecto', desc: '+10% al bonus de las estructuras.', max: 3,
     cost: (n) => grow(6, 1.8, n),
-    effect: (n) => ({ label: 'Bonus de estructura', before: pct(15 * n), after: pct(15 * (n + 1)) }),
+    effect: (n) => ({ label: 'Bonus de estructura', before: pct(10 * n), after: pct(10 * (n + 1)) }),
   },
   {
     id: 'canteraeterna', icon: '🪨', name: 'Cantera eterna', desc: 'Agrandar fogatas cuesta 5% menos.', max: 5,

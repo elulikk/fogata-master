@@ -5,6 +5,8 @@
 import { SIZES, SIZE_AT, MAX_SIZE, BASE_CAPACITY, canFit } from './sizes.js';
 
 const grow = (base, k, n) => Math.round(base * Math.pow(k, n));
+// Consumibles: el precio sube con las compras pero se frena en ×3 (no son una trampa).
+const soft = (base, k, n) => Math.round(base * Math.min(3, Math.pow(k, n)));
 
 // Un tronco ocupa 175×42 de área.
 const TRONCO_AREA = 7350;
@@ -21,24 +23,24 @@ export const SHOP = [
     id: 'fosforos', tab: 'tienda', icon: '📦', name: 'Caja de fósforos',
     effect: () => ({ label: 'Fósforos', before: '—', after: '+5' }),
     desc: '+5 fósforos.',
-    requires: (s) => s.unlocked.tienda,
-    cost: (n) => ({ calor: grow(15, 1.12, n) }),
+    requires: (s) => s.unlocked.tienda && (s.res.fosforo || 0) < 6, // si te sobran, no se ofrece
+    cost: (n) => ({ calor: soft(15, 1.12, n) }),
     apply: (g) => g.state.add('fosforo', 5),
   },
   {
     id: 'ramas', tab: 'tienda', icon: '🌿', name: 'Atado de ramas',
-    effect: () => ({ label: 'Ramas', before: '—', after: '+6' }),
-    desc: '+6 ramas.',
+    effect: () => ({ label: 'Ramas', before: '—', after: '+8' }),
+    desc: '+8 ramas.',
     requires: (s) => s.unlocked.tienda,
-    cost: (n) => ({ calor: grow(10, 1.1, n) }),
-    apply: (g) => g.state.add('rama', 6),
+    cost: (n) => ({ calor: soft(10, 1.1, n) }),
+    apply: (g) => g.state.add('rama', 8),
   },
   {
     id: 'seca', tab: 'tienda', icon: '🪵', name: 'Madera seca',
     effect: () => ({ label: 'Madera seca', before: '—', after: '+3' }),
     desc: '+3 de madera seca: arde fuerte y prende troncos.',
     requires: (s) => s.unlocked.tienda && s.totalCalor >= 140,
-    cost: (n) => ({ calor: grow(28, 1.1, n) }),
+    cost: (n) => ({ calor: soft(28, 1.1, n) }),
     apply: (g) => g.state.add('seca', 3),
   },
   {
@@ -46,7 +48,7 @@ export const SHOP = [
     effect: () => ({ label: 'Troncos', before: '—', after: '+2' }),
     desc: '+2 troncos.',
     requires: (s) => s.unlocked.tienda && s.totalCalor >= 200,
-    cost: (n) => ({ calor: grow(35, 1.1, n) }),
+    cost: (n) => ({ calor: soft(35, 1.1, n) }),
     apply: (g) => g.state.add('tronco', 2),
   },
   {
@@ -85,8 +87,8 @@ export const SHOP = [
     id: 'pinas', tab: 'tienda', icon: '🌰', name: 'Bolsa de piñas',
     effect: () => ({ label: 'Piñas', before: '—', after: '+3' }),
     desc: '+3 piñas: prenden al toque y largan una llamarada.',
-    requires: (s) => s.unlocked.tienda && s.totalCalor >= 1100,
-    cost: (n) => ({ calor: grow(50, 1.1, n) }),
+    requires: (s) => s.unlocked.tienda && s.totalCalor >= 1100 && (s.res.pina || 0) < 8, // si te sobran, no se ofrece
+    cost: (n) => ({ calor: soft(50, 1.1, n) }),
     apply: (g) => g.state.add('pina', 3),
   },
 
@@ -137,7 +139,7 @@ export function pitItems(s) {
       desc: 'Más capacidad, más aire y más calor, pero un pozo grande pide más leña para rendir y ocupa terreno.' + (STRUCT_UNLOCK[size + 1] ? ' ' + STRUCT_UNLOCK[size + 1] : ''),
       max: MAX_SIZE, pit: i,
       effect: (n) => ({ label: `${SIZES[Math.min(n, MAX_SIZE)].name} → ${SIZES[Math.min(n + 1, MAX_SIZE)].name}`, before: sizeInfo(n), after: sizeInfo(n + 1) }),
-      requires: () => s.unlocked.construir && s.totalCalor >= Math.max(520, SIZE_AT[Math.min(MAX_SIZE, size + 1)] * 0.7),
+      requires: () => s.unlocked.construir && s.totalCalor >= Math.max(520, SIZE_AT[Math.min(MAX_SIZE, size + 1)] * 0.55),
       // Motivo por el que no se puede comprar ahora (la tienda lo muestra), o null.
       blocked: () => {
         if (size >= MAX_SIZE) return null;
@@ -159,7 +161,7 @@ export function pitItems(s) {
       effect: () => ({ label: 'Fogatas', before: `${i}`, after: `${i + 1}` }),
       requires: () => s.unlocked.construir && s.totalCalor >= (i === 1 ? 900 : 4000),
       blocked: () => canFit([...s.pits.map((p) => p.size || 0), 0]).reason,
-      cost: () => (i === 1 ? { calor: 1000, tronco: 6 } : { calor: 4500, tronco: 12 }),
+      cost: () => (i === 1 ? { calor: 1000, tronco: 4 } : { calor: 4500, tronco: 8 }),
     });
   }
   return items;

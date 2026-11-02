@@ -5,7 +5,9 @@ import { freshNight, nightGoalNow, coldOf, NIGHT_PHASES } from '../data/nights.j
 import { META, KEEP_UNLOCKS, freshMeta, ashFromRun } from '../data/meta.js';
 import { levelProgress } from '../data/progress.js';
 import { ACHIEVEMENTS } from '../data/achievements.js';
-import { MAX_SIZE, STRUCTURE } from '../data/sizes.js';
+import { MAX_SIZE, STRUCTURE, BASE_CAPACITY, sizeOf } from '../data/sizes.js';
+import { WOODS } from '../data/woods.js';
+import { allItems } from '../data/shop.js';
 
 const KEY = 'fogata-master-save-v1';
 const VERSION = 3;
@@ -197,6 +199,64 @@ export class GameState {
   }
 
   // Revisa los logros; devuelve los recién ganados (y recalcula los mods).
+  // La escena avisa cuando una estructura queda armada (type 'tipi' | 'cabana', quality 0..1).
+  noteStructure(type, quality) {
+    if (quality >= 0.9) this.data.meta.stats.structure90 = (this.data.meta.stats.structure90 || 0) + 1;
+  }
+
+  // Calor/s estimado de un pozo de tamaño `size` con carga `load` (fracción de su capacidad, 0..1,3),
+  // con la mezcla típica seca+tronco. Sirve para mostrar en la tienda qué rinde agrandar.
+  projectRate(size, load = 0.5) {
+    const z = sizeOf(size);
+    const m = this.mods;
+    const area = (w) => w.length * w.thickness;
+    const dens = (WOODS.seca.heat + WOODS.tronco.heat) / (area(WOODS.seca) + area(WOODS.tronco));
+    const heat = Math.max(0, load) * BASE_CAPACITY * z.cap * dens * 0.85;
+    const inten = Math.min(1.4 * (1 + 0.3 * (z.hs - 1)), heat / 3.5);
+    const f = Math.min(1, Math.max(0, load) / (m.fillThreshold || 0.4));
+    return inten * CALOR_PER_INTENSITY * m.base * (1 + (z.mult - 1) * f) * m.calor * m.cosecha;
+  }
+
+  // Próximo paso importante: { icon, text, progress (0..1 | null) } o null.
+  // `ctx.rain` (0..1) deja avisar de la lluvia en pozos grandes.
+  nextGoal(ctx = {}) {
+    const d = this.data;
+    const have = d.res;
+    const pits = d.pits;
+    if ((ctx.rain || 0) > 0.3 && pits.some((p) => (p.size || 0) >= 3 && !p.roof)) {
+      return {
+        icon: '🌧️',
+        text: have.pina > 0 ? 'Llueve: en un pozo grande el fósforo no alcanza. Prendé con una piña.' : 'Llueve: en un pozo grande el fósforo no alcanza. Con techo o con piñas prende.',
+        progress: null,
+      };
+    }
+    const ORDER = ['agrandar_0', 'hacha', 'canasta', 'fogata_1', 'techo_0', 'lenera', 'botas', 'ayudante', 'secadero', 'agrandar_1', 'techo_1', 'agrandar_2', 'fogata_2'];
+    const items = allItems(d).filter((it) => !it.apply && it.cost && (d.bought[it.id] || 0) < (it.max || 1) && it.requires?.(d));
+    const rank = (it) => { const k = ORDER.indexOf(it.id); return k < 0 ? 99 : k; };
+    items.sort((a, b) => rank(a) - rank(b));
+    for (const it of items) {
+      if (it.blocked?.()) continue;
+      const lvl = d.bought[it.id] || 0;
+      const p = this.price(it.cost(lvl));
+      const needC = Math.max(0, p.calor - d.calor);
+      const needT = Math.max(0, p.tronco - (have.tronco || 0));
+      const name = it.name;
+      if (!needC && !needT) return { icon: it.icon, text: `${name}: ya podés comprarlo.`, progress: 1 };
+      const parts = [];
+      if (needC) parts.push(`${Math.ceil(needC)} 🔥`);
+      if (needT) parts.push(`${needT} 🪵`);
+      let hint = '';
+      if (needT) hint = d.bought.hacha ? ', el bosque los trae' : d.unlocked.tienda ? ', el Mercachifle los vende' : ', el bosque los trae';
+      const frac = Math.min(p.calor ? d.calor / p.calor : 1, p.tronco ? (have.tronco || 0) / p.tronco : 1);
+      return { icon: it.icon, text: `${name}: te faltan ${parts.join(' y ')}${hint}.`, progress: Math.max(0, Math.min(1, frac)) };
+    }
+    const NEXT = [[1600, 'viento', 'sopla el viento'], [2500, 'noches', 'se abren las noches'], [4500, 'tormentas', 'llegan las tormentas']];
+    for (const [at, id, what] of NEXT) {
+      if (!d.unlocked[id]) return { icon: '⏳', text: `Seguí hasta ${at} 🔥: ${what}.`, progress: Math.min(1, d.totalCalor / at) };
+    }
+    return null;
+  }
+
   checkAchievements() {
     const got = this.data.meta.achievements;
     const fresh = ACHIEVEMENTS.filter((a) => !got[a.id] && a.when(this.data));
@@ -295,6 +355,7 @@ export class GameState {
       goal,
       pct: nt.phase === 'off' ? 0 : Math.min(1, nt.t / len),
       goalMet: this.rate >= goal,
+      margin: goal > 0 ? this.rate / goal - 1 : 0, // >0: vas sobrado (el amanecer da más ceniza)
       cold: coldOf(nt),
       rate: this.rate,
       missing: Math.max(0, goal - this.rate), // "te faltan X/s"
@@ -377,7 +438,7 @@ export class GameState {
       ashBonus: 1 + 0.1 * u('fortuna') + ach.ash,
       base: 1.15, // el fuego rinde 15% más; compensa bajar el peso de los chispazos
       enlargeCost: Math.pow(0.9, c('cantera')) * Math.pow(0.95, u('canteraeterna')),
-      structureBonus: (1 + 0.5 * c('chimenea')) * (1 + 0.15 * u('arquitecto')),
+      structureBonus: (1 + 0.5 * c('chimenea')) * (1 + 0.1 * u('arquitecto')),
       fillThreshold: 0.4 - 0.12 * c('fogonero'), // carga (fracción de la capacidad) que da el bonus de tamaño pleno
       startSize: Math.min(3, u('hogar')),
       peakSecs: 20, // fogata pico: segundos de calor que regala

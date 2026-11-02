@@ -372,3 +372,27 @@ Notas:
 - **GameScene**: `onSlotSnap` (clac con cadena por pozo `pit.snapChain`, que vence a los 7 s; a los 140 ms —fin de la animación— polvo en los extremos, 1–3 chispas y `log.pop(0.4)` como asentamiento visual, sin mover el cuerpo); `log:unsnap` (sonido + polvo si 'support'; desencajar por 'grab' baja la cadena en 1); `slotMagnetTick()` (tick al cambiar `drag.slot`, con 180 ms de histéresis; está fuera de `updateSlots` para no pisar a Arte). `structure:formed` consume la cadena: acorde + brillo y calidad visual +0,1 si ≥3 piezas.
 - Todo respeta `this.fx` (sin movimiento: solo sonido).
 - **Verificado**: `node --check` OK; eventos emitidos a mano en 127.0.0.1:8080, 0 errores de consola. **No** probado con arrastres reales ni visto en pantalla (panel sin rAF); el volumen de clac/tick conviene oírlo.
+
+## C5 · Fase 1 (solo `FireAudio.js`)
+
+**API nueva** (la escena la conecta en la fase 2):
+- `ignite(kind)`: acepta `'tipi'`, `'cabana'` o `'comun'`; con número sigue como antes. Tipi ≈0,9 s: crepitar que se acelera, barrido que sube y whump a 85→42 Hz. Cabaña ≈1,4 s: más lenta y ancha, whump a 62→34 Hz.
+- `firstTime(n)`: campanita pentatónica (n 0..5). `duck(on)`: pasa-bajos a 900 Hz + −3 dB (master→duckF→duckG→compresor). `drag(speed px/s)`: whoosh suave desde 500 px/s. `collapse()`: cascada de 6 golpes que baja de tono + retumbo.
+- Ambiente: `setAmbient(night 0..1)`; grillos, brisa y un lecho de crepitar cuya cadencia sube con la intensidad (`setFire` la actualiza). Grillos y brisa bajan hasta −80 % con el fuego grande. Por defecto `night = 0.5`, así que ya suenan sin cablear.
+- **Mezcla**: el rugido baja ≈−2,6 dB (tope 0,45) para que los one-shots queden por encima.
+
+**Medición** (OfflineAudioContext mono 44,1 kHz, tras el compresor, volumen 0,9; sin oído humano):
+
+| Caso | Pico dBFS | RMS dBFS |
+|---|---|---|
+| Base, fuego 0,8 | −9,3 | −21,6 |
+| Base, fuego 0,3 | −15,8 | −30 |
+| + tump pesado | −9,8 | −21,3 |
+| + snapClack | −8,4 | −21,5 |
+| + ignite tipi | −4,2 | −20,7 |
+| + ignite cabaña | −3,8 | −20,4 |
+| + collapse | −5,0 | −21,1 |
+| + firstTime | −8,2 | −21,6 |
+| Peor caso (todo junto, fuego 1,0) | −3,2 | −17,2 |
+
+Sin clipping ni NaN (máximo −3,2 dBFS). Antes de bajar el rugido la base llegaba a −7,4. **Limitación**: son números, no escucha; el timbre y el equilibrio fino (grillos, crepitar, whump) hay que oírlos. Los golpes cortos (tump, clac) tienen un pico similar al de la base por el ruido marrón, así que se distinguen por el ataque, no por el nivel.

@@ -17,10 +17,15 @@
       <div id="pit-info"></div>
       <div id="hud-calor" class="hidden">
         <div class="calor"><span class="ico">🔥</span><span id="calor-val">0</span></div>
-        <div id="calor-rate">+0 /s</div>
+        <div id="calor-rate" tabindex="0" role="button" aria-label="Ritmo de calor: ver el desglose">+0 /s</div>
+        <div id="rate-pop" role="status"></div>
         <div id="level" class="hidden">
           <div class="lvl-label" id="lvl-text">Nivel 1</div>
           <div class="bar"><div id="lvl-fill"></div></div>
+        </div>
+        <div id="goal" class="hidden" aria-live="polite">
+          <div class="g-txt"></div>
+          <div class="g-bar hidden"><b></b></div>
         </div>
       </div>
 
@@ -39,8 +44,8 @@
         </div>
         <div id="achv" class="hidden" role="status" aria-live="polite"></div>
         <div id="toasts" role="status" aria-live="polite"></div>
+        <div id="hint"></div>
       </div>
-      <div id="hint"></div>
 
       <div id="actions">
         <button id="btn-forest" class="act hidden" title="Ir al bosque (B)"><span class="fill"></span><span class="lbl">🌲 Ir al bosque</span><kbd>B</kbd></button>

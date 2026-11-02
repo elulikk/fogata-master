@@ -26,6 +26,7 @@ export const ACHIEVEMENTS = [
   { id: 'renacido', icon: '🪦', name: 'Renacido', desc: 'Hacé tu primer prestigio.', when: (s) => s.meta.prestiges >= 1, reward: { calor: 0.02 } },
   { id: 'chispero', icon: '💫', name: 'Cazachispas', desc: 'Juntá 100 chispazos en total.', when: (s) => (s.meta.stats.orbs || 0) >= 100, reward: { orbs: 0.03 } },
   { id: 'chispero2', icon: '✨', name: 'Tormenta de chispas', desc: 'Juntá 500 chispazos en total.', when: (s) => (s.meta.stats.orbs || 0) >= 500, reward: { orbs: 0.03 } },
+  { id: 'buen-armado', icon: '🛖', name: 'Buen armado', desc: 'Armá un tipi o una cabaña de calidad 90% o más.', when: (s) => (s.meta.stats.structure90 || 0) >= 1, reward: { calor: 0.01 } },
   { id: 'ritmo10', icon: '⚡', name: 'A todo fuego', desc: 'Alcanzá 10 calor/s.', when: (s) => (s.meta.stats.maxRate || 0) >= 10, reward: { calor: 0.01 } },
 ];
 

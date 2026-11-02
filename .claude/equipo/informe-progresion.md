@@ -238,3 +238,46 @@ Pendiente: probar en navegador una noche real con S5+ y poca leña (si resulta d
 - **Tienda:** la descripción de "Agrandar a X" agrega qué desbloquea: Hogar → "ya entra una cabaña de ramas", Pira → "cabaña de troncos" (`STRUCT_UNLOCK` en shop.js).
 - **Balance:** con calidad instantánea, el bonus base ya no es gradual: tipi 0,65×0,10 = +6,5% (0,9 → +9%), cabaña 0,8×0,15 = +12% (máx. +15%). Dentro del tope +20% de Fire.js, eso es razonable y no se rompe: la cabaña requiere pozo Hogar+ y ramas/troncos. El riesgo está en las cartas: Chimenea ×3 (×2,5) y Arquitecto ×3 (×1,45) multiplican hasta ×3,6 y el tope de GameState (`min(0.35, 0.2·mult)`) deja pasar hasta +35%, que con calidad gratis llega sin esfuerzo.
 - **Propuesta (no aplicada: GameState.js no estaba en este turno):** bajar el tope duro de `rateBreakdown` de 0,35 a 0,30 y/o contar Arquitecto como +10% por nivel en vez de +15%. Con tope 0,30 la cabaña base (+12%) llega al máximo con ×2,5 (Chimenea 3 solo), así que Arquitecto sería el extra. Dejé cartas y meta sin cambios.
+
+## C5 fase 1 — la madera pesa, meseta, nextGoal
+
+Archivos tocados: `data/woods.js`, `sizes.js`, `shop.js`, `meta.js`, `nights.js`, `achievements.js`, `state/GameState.js` (`node --check` OK; navegador 127.0.0.1:8080 sin errores, version 3, guardado intacto).
+
+**1. Madera.** Leí Fire.js: el calor de un pozo es `min(1.4·(1+0,3·(hs−1)), Σ heatOut/3,5)`, así que la punta se satura igual con 5 ramas que con 2 secas+tronco; lo que cambia es cuánto dura. Cambié `heat`: rama 0,95→0,8, húmeda 0,95→0,8, seca 1,6→1,9, tronco 1,5→2,4 (piña igual). Medido en juego (Fogatita, un fósforo, total calor / duración / calor por s):
+
+| Mezcla | Antes | Después |
+|---|---|---|
+| 5 ramas | 25 / 13 s / 1,9 | 24 / 13 s / 1,8 |
+| 2 secas + 1 tronco | 120–182 / 105 s / 1,2–1,7 | 152–216 / 102 s / 1,5–2,1 |
+| 2 secas + 2 troncos | 173–237 / 96 s / 1,8–2,5 | 203–271 / 97 s / 2,1–2,8 |
+| 3 secas | 76–140 / 38 s | 80–149 / 38 s |
+Resultado: una pieza buena rinde ~8× la de rama (antes ~6×) y el ritmo sostenido sube 20–25%. No cambié `fuel` ni Fire.js. Aviso: la saturación incluye `hs` (el pozo grande satura más alto), así que S3+ rinden algo más que mi tabla C4-B (S3 lleno ≈ 9,9/s, S7 ≈ 30/s); no rompe las noches 1–3 (S0 no cambia).
+
+**2. Meseta (H4).** El cuello era el tronco: agrandar pedía 2,4,6… troncos y nadie lo avisaba. Troncos de agrandar a la mitad (1,2,3,5,8,12,18), 2.ª fogata 6→4 troncos, tercera 12→8; los tamaños se ofrecen desde el 55 % de `SIZE_AT` (antes 70 %). `nextGoal` dice qué falta y dónde conseguirlo.
+
+**3. `state.nextGoal(ctx)`** → `{icon, text, progress}` o null. Orden: Agrandar → Hacha → Canasta → Nueva fogata → Techo → Leñera → Botas → Ayudante → Secadero…; si no hay nada, el próximo hito (viento 1.600, noches 2.500, tormentas 4.500). Ej.: "Agrandar a Fogata: te faltan 220 🔥 y 1 🪵, el Mercachifle los vende." Con `ctx.rain > 0.3` y un pozo ≥ 3 sin techo avisa: "Llueve: en un pozo grande el fósforo no alcanza. Con techo o con piñas prende." **`state.projectRate(size, load)`**: calor/s estimado con mezcla seca+tronco (load = fracción de la capacidad). Ej. con cartas base: S0 0,15→0,9 / 0,4→2,4; S3 0,4→9,9; S5 17,6; S7 29,7.
+
+**4. H5.** Fósforos y piñas no se ofrecen si tenés ≥6 / ≥8; consumibles con precio topado en ×3 (**H6**: Atado de ramas 10→30, no 81); Atado da 8 ramas (antes 6).
+
+**5. Noches.** Metas sin cambio (2,5 / 2,3 / 3,0 …). Nuevo: `nightInfo().margin` (= rate/meta − 1) y el evento `dawn` trae `margin` (ritmo medio de la noche sobre la meta); `dawnAsh(n, mods, margin)` suma +50 % de ceniza por cada 100 % de margen (tope 150 %). Noche 1 con 5,2/s ≈ margen 108 % → 3 → 5 cenizas.
+
+**6. Arquitecto** +10 % por nivel. Logro "Buen armado" (calidad ≥0,9, +1 % calor) usa `meta.stats.structure90`.
+
+### Ritmo (ESTIMADO, no pude correr el bot): base del tester → con los cambios
+Supuesto: el jugador compra Agrandar a la 1.ª Fogata ~4:00 (nextGoal lo guía y pide 1 tronco), el Fogón ~8:00, ritmo 5,2/s y luego ≈6,9/s.
+| Hito | Antes | Después (est.) |
+|---|---|---|
+| 500 | 2:05 | 2:05 |
+| 1.500 | 6:44 | ~6:00 |
+| 2.500 | 11:31 | ~9:20 |
+| 4.500 | 17:22 | ~14:00 |
+| Noches 1–3 (2,5/2,3/3,0) | holgadas (5,2/s) | iguales; el sobrante ahora da ceniza |
+El tester debe re-medir; si 2.500 cae antes de 9 min, subir el hito.
+
+### Para la fase 2 (escena/tienda/UI), lista exacta
+1. `GameScene` amanecer (~l.1189): `dawnAsh(n, this.state.mods, ev.margin)` y mostrar el margen en el resumen.
+2. En `structure:formed`/estructura estable: `state.noteStructure(type, quality)`.
+3. HUD: `handlers.nextGoal = () => state.nextGoal({ rain: this.weather.rain })`, refrescar ~1 vez/s.
+4. `shopItems()`: en Agrandar y Nueva fogata agregar "con tu leña: X → Y/s" con `state.projectRate(size, load real del pozo)`.
+5. `rollLoot` (~l.857): ramas `(4 + r()*4)`; piñas solo si `res.pina < 8`; fósforos solo si `res.fosforo < 6` (si no, 0,05); húmeda baja la fracción mojada a 0,5.
+6. Gust `night:gust` sigue sin emitirse (pendiente viejo).

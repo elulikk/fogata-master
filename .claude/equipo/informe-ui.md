@@ -243,3 +243,25 @@ Verificado en 127.0.0.1:8080: título, Continuar, Esc→pausa (`scene.paused` tr
 
 - "Reiniciar partida" de Ajustes ahora es "Partida nueva…" y llama a `mm.askNew()`, el mismo flujo del título: confirmación en pantalla (Cancelar resaltado, vuelve a Ajustes) + copia previa (`backup()`) + `handlers.reset`. Se quitó la confirmación propia de dos toques en Ui.js. Sin partida guardada cierra el menú sin borrar.
 - Solo `node --check`; no probado en el navegador.
+
+## C5 fase 1 (tutorial y legibilidad)
+
+Archivos: `Ui.js`, `MainMenu.js`, `index.html`, `style.css`. Probado a mano en 127.0.0.1:8080 llamando a la API (partida respaldada y restaurada, `locked = true`, pestaña cerrada). Sin tocar GameScene/GameState.
+
+**Hecho**
+- **Tutorial** `ui.tutorial(event, data)`: pasos arrastrar → encajar → prender (resalta 🔥 fósforos) → tipi → cabaña (solo con tamaño ≥3). Avanza al lograr la acción; un evento cumple su paso y los anteriores; un paso sin cumplirse vence (45/45/30/60/60 s) para no insistir. Progreso en `localStorage['fogata-ui-tut']`. Urgencias (se apagó, ahogando, brasas, bosque, lleno) ganan: `setHint(text, force, urgent)` deduce `urgent` por texto; la escena puede pasarlo explícito. `hintRotate` no sale mientras el tutorial está activo.
+- **`ui.guide(id|null)`**: clase `.guide` con pulso; sin animación con reduce-motion.
+- **Etiqueta del pozo**: 15 px, opaca, fondo suave; nuevos campos `bonus` (fracción: 0.22 → "+22%", o texto), `slotsUsed`/`slotsTotal` ("3/8 ranuras", se oculta en compact).
+- **Pista (H10)**: ahora vive dentro de `#topc` (arriba al centro, píldora con fondo), nunca sobre llamas ni etiqueta. **Chip Secadero (H3)**: columna arriba a la derecha.
+- **HUD**: calor/s 19 px; ⓘ y clic/hover/foco abren el desglose (`rateInfo.parts`); barra de nivel 11 px y 230 px. **Próximo objetivo** `#goal` bajo el nivel desde `handlers.nextGoal()` (sondeo cada 0,5 s; sin handler, no aparece).
+- **Cómo jugar** en la pausa (con "Ver la guía paso a paso" que reinicia el tutorial); Créditos queda solo con créditos.
+- **H9**: "Continuar" solo si el guardado tiene progreso (calor > 0 o nivel > 1). **Amanecer**: "Premio del alba · elegís 1 carta gratis".
+
+**Pendiente en GameScene (mi turno de fase 2), lista exacta**
+1. Al terminar `create()`: `ui.tutorial('load', { progress: state.totalCalor > 0 || state.data.level > 1, size: <mayor size de pozo> })`. Tras Partida nueva (`reset`) el `restart` de la escena vuelve a llamarlo con progress false (resetView ya reinicia el tutorial).
+2. Llamar `ui.tutorial(ev)` en: `startDrag` ('grab'), `endDrag` ('drop'), `log:snap` ('snap'), encendido con fósforo/toque ('ignite'), `rotateDrag`/`addAim` ('rotate'), `structure:formed` ('structure:tipi' / 'structure:cabana'), `pit:grow` ('pit:grow', `{size}`).
+3. `pitInfoList`: agregar `bonus` (fracción de calor de la estructura), `slotsUsed`, `slotsTotal`.
+4. `bindUi`: `nextGoal: () => this.state.nextGoal()`.
+5. `setHint(text, false, urgent)` en `update()` si se quiere marcar urgencias sin depender del texto.
+
+**No verificado**: el tutorial con el juego real (solo eventos llamados a mano), táctil, y el 812×375 de los cambios nuevos (la etiqueta y el HUD se vieron en pantalla de escritorio pequeña). El desglose abierto empuja hacia abajo la barra de nivel (no flota).

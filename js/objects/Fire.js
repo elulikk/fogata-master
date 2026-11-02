@@ -375,6 +375,11 @@ export class Fire {
       if (l.state === 'ceniza' || !l.sprite.body) continue;
       const p = l.pit;
       if (l.snapAnim) this.stepSnap(l, dt);
+      if (l.wobble) this.stepWobble(l, dt);
+      if (l.settleT > 0) {
+        l.settleT -= dt;
+        if (l.settleT <= 0 || l.dragged) { l.settleT = 0; l.sprite.setFrictionAir(0.012); }
+      }
       if (p !== l.lastPit) {
         l.lastPit = p;
         l.overChecked = false;
@@ -463,7 +468,10 @@ export class Fire {
     const y0 = s.y;
     const a0 = s.rotation;
     const da = Phaser.Math.Wrap(slot.angle - a0, -Math.PI / 2, Math.PI / 2);
-    l.snapAnim = { t: 0, dur: this.motion === false ? 0.001 : 0.15, x0, y0, a0, da, x: slot.x, y: slot.y };
+    // La caída dura según la distancia (90–220 ms) y termina con un asentamiento mínimo.
+    const dist = Math.hypot(slot.x - x0, slot.y - y0);
+    const dur = this.motion === false ? 0.001 : clamp(0.09 + dist * 0.0018, 0.09, 0.22);
+    l.snapAnim = { t: 0, s: this.motion === false ? 1 : 0, dur, x0, y0, a0, da, x: slot.x, y: slot.y };
     this.wakeLogs(pit);
     this.scene.events.emit('log:snap', { log: l, pit, slot });
   }
@@ -472,18 +480,60 @@ export class Fire {
   stepSnap(l, dt) {
     const a = l.snapAnim;
     const s = l.sprite;
-    a.t = Math.min(1, a.t + dt / a.dur);
-    const e = 1 - (1 - a.t) * (1 - a.t);
-    s.setPosition(a.x0 + (a.x - a.x0) * e, a.y0 + (a.y - a.y0) * e);
-    s.setRotation(a.a0 + a.da * e);
+    if (a.t < 1) {
+      a.t = Math.min(1, a.t + dt / a.dur);
+      const e = 1 - (1 - a.t) * (1 - a.t);
+      s.setPosition(a.x0 + (a.x - a.x0) * e, a.y0 + (a.y - a.y0) * e);
+      s.setRotation(a.a0 + a.da * e);
+    } else {
+      a.s = Math.min(1, a.s + dt / 0.09); // asentamiento: se hunde 2 px y vuelve
+      s.setPosition(a.x, a.y + Math.sin(Math.PI * a.s) * 2.2);
+    }
     l.syncGlow();
-    if (a.t >= 1) { l.snapAnim = null; l.snapping = false; }
+    if (a.t >= 1 && a.s >= 1) { s.setPosition(a.x, a.y); l.snapAnim = null; l.snapping = false; }
+  }
+
+  // Colapso: la leña que perdió su apoyo tiembla un instante (con brasas en el contacto) y recién
+  // después cae empujada hacia adentro del pozo. Las que se apoyaban en ella siguen en cascada.
+  startWobble(l) {
+    const s = l.sprite;
+    l.wobble = { t: 0, dur: 0.26 + Math.random() * 0.1, x0: s.x, y0: s.y, ember: 0 };
+    const pit = l.pit;
+    const now = this.scene.time.now;
+    if (pit && now - (pit.lastCollapse || -1e9) > 2500) {
+      pit.lastCollapse = now;
+      this.scene.events.emit('structure:collapse', { pit });
+    }
+  }
+
+  stepWobble(l, dt) {
+    const w = l.wobble;
+    const s = l.sprite;
+    w.t += dt;
+    if (!l.slot || l.dead || !s.body) { l.wobble = null; return; }
+    const k = Math.min(1, w.t / w.dur);
+    if (this.motion !== false) s.setPosition(w.x0 + Math.sin(w.t * 75) * (0.6 + 1.6 * k), w.y0);
+    w.ember -= dt;
+    if (w.ember <= 0) {
+      w.ember = 0.07;
+      const e = l.pointAlong(Math.random());
+      this.sparkAt(e, 1);
+      this.smoke.emitParticleAt(e.x, e.y);
+    }
+    if (w.t >= w.dur) {
+      s.setPosition(w.x0, w.y0);
+      const dir = l.pit ? Math.sign(l.pit.x - l.x) || (Math.random() < 0.5 ? -1 : 1) : 0;
+      this.unsnap(l, 'support');
+      s.setVelocity(dir * 1.3, -1.2);
+      s.setAngularVelocity((Math.random() - 0.5) * 0.06);
+    }
   }
 
   // Suelta la leña de su ranura y le devuelve la física.
   unsnap(l, reason = 'grab') {
     if (!l.slot) return;
     const pit = l.pit;
+    l.wobble = null;
     l.slot = null;
     l.snapping = false;
     l.snapAnim = null;
@@ -506,7 +556,9 @@ export class Fire {
         if (!l.slot || l.snapping) continue;
         const lost = !l.sprite.body || l.dead || l.state === 'ceniza'
           || l.slot.requires.some((r) => r.dead || !r.slot || r.state === 'ceniza' || !r.sprite.body);
-        if (lost) { this.unsnap(l, 'support'); changed = true; }
+        if (!lost) continue;
+        if (!l.sprite.body || l.dead || l.state === 'ceniza') { this.unsnap(l, 'support'); changed = true; }
+        else if (!l.wobble) this.startWobble(l);
       }
       if (!changed) break;
     }

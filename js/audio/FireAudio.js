@@ -22,7 +22,12 @@ export class FireAudio {
       comp.ratio.value = 5;
       this.master = ctx.createGain();
       this.master.gain.value = this.muted ? 0 : this.volume;
-      this.master.connect(comp);
+      // Pausa/menú: pasa-bajos suave entre el master y el compresor (ver duck()).
+      this.duckF = ctx.createBiquadFilter();
+      this.duckF.type = 'lowpass';
+      this.duckF.frequency.value = 20000;
+      this.duckG = ctx.createGain();
+      this.master.connect(this.duckF).connect(this.duckG).connect(comp);
       comp.connect(ctx.destination);
 
       this.white = this.makeNoise(2, false);
@@ -32,6 +37,14 @@ export class FireAudio {
       this.rain = this.loop(this.white, 'bandpass', 2400, 0.4);
       this.rainLow = this.loop(this.brown, 'lowpass', 500, 0.5);
       this.wind = this.loop(this.brown, 'bandpass', 380, 1.2);
+      // Capas de ambiente: grillos y brisa de fondo (bajan con el fuego grande) y un lecho de crepitar
+      // cuya cadencia sube con la intensidad.
+      this.crickets = this.modLoop(this.white, 'bandpass', 4300, 18, 16);
+      this.breeze = this.loop(this.brown, 'lowpass', 260, 0.6);
+      this.crackBed = this.modLoop(this.white, 'bandpass', 3200, 0.8, 6);
+      this.night = 0.5;
+      this.fireI = 0;
+      this.mixAmbient();
     }
     if (this.ctx.state === 'suspended') this.ctx.resume();
   }
@@ -69,6 +82,32 @@ export class FireAudio {
     return { f, g };
   }
 
+  // Ruido filtrado con modulación de amplitud por un LFO (grillos, lecho de crepitar). Nivel en `g`.
+  modLoop(buffer, type, freq, q, lfoHz) {
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.loop = true;
+    const f = ctx.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const mod = ctx.createGain();
+    mod.gain.value = 0.5;
+    const lfo = ctx.createOscillator();
+    lfo.type = type === 'bandpass' && freq > 4000 ? 'square' : 'sawtooth';
+    lfo.frequency.value = lfoHz;
+    const depth = ctx.createGain();
+    depth.gain.value = 0.5;
+    lfo.connect(depth).connect(mod.gain);
+    const g = ctx.createGain();
+    g.gain.value = 0;
+    src.connect(f).connect(mod).connect(g).connect(this.master);
+    src.start(0, Math.random() * buffer.duration);
+    lfo.start();
+    return { f, g, lfo };
+  }
+
   get on() {
     return !!this.ctx && this.ctx.state === 'running' && !this.muted;
   }
@@ -98,9 +137,36 @@ export class FireAudio {
   setFire(intensity, air, draft = 0) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
-    this.roar.g.gain.setTargetAtTime(Math.min(0.6, intensity * (0.42 + 0.12 * draft)), t, 0.25);
+    this.roar.g.gain.setTargetAtTime(Math.min(0.45, intensity * (0.31 + 0.09 * draft)), t, 0.25);
     this.roar.f.Q.setTargetAtTime(0.7 + 1.1 * draft, t, 0.4);
     this.roar.f.frequency.setTargetAtTime(160 + intensity * 520 * Math.min(1, air), t, 0.3);
+    this.fireI = Math.min(1, intensity);
+    this.crackBed.lfo.frequency.setTargetAtTime(4 + intensity * 14, t, 0.5); // crepitar que se acelera
+    this.mixAmbient();
+  }
+
+  // night 0..1: de noche suenan más los grillos y la brisa.
+  setAmbient(night = 0.5) {
+    this.night = Math.max(0, Math.min(1, night));
+    this.mixAmbient();
+  }
+
+  // Mezcla de fondo: el fuego grande llena el mundo y los grillos/brisa bajan; el crepitar sube.
+  mixAmbient() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    const hush = 1 - 0.8 * this.fireI;
+    this.crickets.g.gain.setTargetAtTime(0.035 * this.night * hush, t, 0.8);
+    this.breeze.g.gain.setTargetAtTime(0.06 * (0.4 + 0.6 * this.night) * hush, t, 0.8);
+    this.crackBed.g.gain.setTargetAtTime(0.05 * this.fireI, t, 0.4);
+  }
+
+  // Pausa/menú: pasa-bajos suave y un poco menos de volumen; false lo devuelve.
+  duck(on) {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.duckF.frequency.setTargetAtTime(on ? 900 : 20000, t, on ? 0.15 : 0.25);
+    this.duckG.gain.setTargetAtTime(on ? 0.7 : 1, t, 0.15);
   }
 
   setHiss(a) {
@@ -177,7 +243,9 @@ export class FireAudio {
     this.tone({ type: 'triangle', freq: 900 + Math.random() * 400, freqEnd: 300, decay: 0.03, vol: 0.15 * strength });
   }
 
+  // size: número 0..1 (fuego común) o kind: 'tipi' | 'cabana' | 'comun'.
   ignite(size = 0.5, when = 0) {
+    if (typeof size === 'string') return this.igniteKind(size, when);
     if (!this.on || !this.throttle('ignite', 140)) return;
     const ctx = this.ctx;
     const t = ctx.currentTime + when;
@@ -199,6 +267,69 @@ export class FireAudio {
     }
     // "Whump" grave: más hondo y largo cuanto más grande es la leña.
     this.tone({ freq: 95 - 35 * size, freqEnd: 38, attack: 0.01, decay: 0.25 + 0.35 * size, vol: 0.18 + 0.42 * size, when });
+  }
+
+  // Prender una estructura: crepitar creciente mientras la llama sube y "whump" grave al llegar arriba.
+  // Tipi: sube rápido y angosto (~0,9 s), whump más agudo. Cabaña: corre ancha y lenta (~1,4 s), whump hondo.
+  igniteKind(kind, when = 0) {
+    if (kind !== 'tipi' && kind !== 'cabana') return this.ignite(0.5, when);
+    if (!this.on || !this.throttle('ignite', 140)) return;
+    const cab = kind === 'cabana';
+    const dur = cab ? 1.4 : 0.9;
+    const n = cab ? 16 : 20;
+    for (let i = 0; i < n; i++) {
+      const u = i / n;
+      const at = when + dur * Math.pow(u, 0.8); // cada vez más seguidos
+      this.burst({ type: 'bandpass', freq: (cab ? 1000 : 1600) + u * (cab ? 1500 : 3200) + Math.random() * 800, q: 1.5 + Math.random() * 2, decay: 0.012 + Math.random() * 0.02, vol: 0.08 + 0.22 * u, when: at });
+    }
+    const t = this.ctx.currentTime + when;
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.brown;
+    const f = this.ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(cab ? 120 : 180, t);
+    f.frequency.exponentialRampToValueAtTime(cab ? 700 : 1300, t + dur);
+    f.frequency.exponentialRampToValueAtTime(220, t + dur + 0.8);
+    const g = this.ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(cab ? 0.5 : 0.4, t + dur);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.8);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t, Math.random() * 2, dur + 1);
+    // Whump al llegar arriba.
+    const top = when + dur;
+    this.tone({ freq: cab ? 62 : 85, freqEnd: cab ? 34 : 42, attack: 0.01, decay: cab ? 0.7 : 0.5, vol: cab ? 0.5 : 0.4, when: top });
+    this.burst({ buf: this.brown, type: 'lowpass', freq: cab ? 380 : 520, decay: 0.3, vol: 0.3, when: top });
+  }
+
+  // Primera vez de un gesto (n = 0,1,2…): campanita corta que sube por la escala pentatónica.
+  firstTime(n = 0) {
+    if (!this.on || !this.throttle('firstTime', 150)) return;
+    const pent = [523, 587, 659, 784, 880, 1047];
+    const f = pent[Math.min(pent.length - 1, Math.max(0, n | 0))];
+    this.tone({ type: 'sine', freq: f, decay: 0.35, vol: 0.09 });
+    this.tone({ type: 'sine', freq: f * 2, decay: 0.2, vol: 0.03, when: 0.04 });
+    this.burst({ type: 'highpass', freq: 7000, decay: 0.12, vol: 0.04, when: 0.03 });
+  }
+
+  // Arrastrar rápido: whoosh muy suave. speed en px/s.
+  drag(speed = 0) {
+    if (!this.on || speed < 500 || !this.throttle('dragWhoosh', 110)) return;
+    const s = Math.min(1, (speed - 500) / 1500);
+    this.burst({ buf: this.brown, type: 'bandpass', freq: 400 + 500 * s, freqEnd: 700 + 700 * s, q: 0.8, attack: 0.04, decay: 0.12, vol: 0.05 + 0.07 * s });
+  }
+
+  // Derrumbe de una estructura o pila: cascada de golpes de madera que baja de tono y retumba.
+  collapse() {
+    if (!this.on || !this.throttle('collapse', 400)) return;
+    for (let i = 0; i < 6; i++) {
+      const w = i * 0.07 + Math.random() * 0.03;
+      const base = 240 - i * 18 + Math.random() * 20;
+      this.tone({ type: 'sine', freq: base * 1.5, freqEnd: base, attack: 0.002, decay: 0.07, vol: 0.2, when: w });
+      this.burst({ type: 'bandpass', freq: 1000 + Math.random() * 500, q: 1.4, decay: 0.02, vol: 0.14, when: w });
+    }
+    this.burst({ buf: this.brown, type: 'lowpass', freq: 300, decay: 0.6, vol: 0.4 });
+    this.tone({ freq: 70, freqEnd: 40, attack: 0.02, decay: 0.5, vol: 0.25, when: 0.15 });
   }
 
   match(success = true) {

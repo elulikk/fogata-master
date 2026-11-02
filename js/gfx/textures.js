@@ -264,55 +264,91 @@ function radial(scene, key, size, stops, sy = 1) {
   });
 }
 
-function drawStone(ctx, w, h, tone, seed = 0) {
-  const g = ctx.createRadialGradient(w * 0.36, h * 0.28, 2, w / 2, h / 2, w * 0.58);
-  g.addColorStop(0, `hsl(30, 7%, ${tone + 26}%)`);
-  g.addColorStop(0.55, `hsl(25, 6%, ${tone + 2}%)`);
-  g.addColorStop(1, `hsl(20, 8%, ${tone - 14}%)`);
-  ctx.save();
-  ctx.beginPath();
-  ctx.ellipse(w / 2, h / 2, w / 2 - 1, h / 2 - 1, 0, 0, Math.PI * 2);
-  ctx.clip();
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  // Granulado y una grieta.
-  for (let i = 0; i < w * 1.2; i++) {
-    ctx.globalAlpha = rand(0.08, 0.22);
-    ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
-    ctx.fillRect(rand(0, w), rand(0, h), rand(1, 2.4), rand(1, 2));
+// Polígono irregular (roca): n vértices sobre una elipse con ruido. Devuelve los puntos.
+function rockPoints(w, h, n, jitter) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.12, 0.12);
+    const k = 1 - rand(0, jitter);
+    // Base más plana: aplasta la mitad inferior para que apoye.
+    const sy = Math.sin(a) > 0.5 ? 0.88 : 1;
+    pts.push([w / 2 + Math.cos(a) * (w / 2 - 2) * k, h / 2 + Math.sin(a) * (h / 2 - 2) * k * sy]);
   }
-  ctx.globalAlpha = 0.35;
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = 0.8;
-  ctx.beginPath();
-  const sx = rand(w * 0.3, w * 0.6);
-  ctx.moveTo(sx, rand(2, h * 0.3));
-  ctx.lineTo(sx + rand(-6, 6), h * 0.5);
-  ctx.lineTo(sx + rand(-8, 8), rand(h * 0.7, h - 2));
-  ctx.stroke();
-  // Musgo en la parte baja y de un costado.
-  ctx.globalAlpha = 0.55;
-  const side = seed % 2 ? 0.6 : -0.6;
-  for (let i = 0; i < w * 0.5; i++) {
-    const a = rand(0.2, 0.9) * Math.PI;
-    ctx.fillStyle = ['#34502f', '#41612f', '#2a4129'][i % 3];
+  return pts;
+}
+
+// Roca facetada: polígono con planos de luz distinta (arriba claro, flancos oscuros), hollín abajo y
+// musgo apenas en el filo superior. Gris frío, sin pecas (antes parecía una bolita de algodón).
+function drawStone(ctx, w, h, tone, seed = 0) {
+  const pts = rockPoints(w, h, 9, 0.16);
+  const path = () => {
     ctx.beginPath();
-    ctx.arc(w / 2 + Math.cos(a + side) * (w / 2 - 2) * rand(0.5, 1), h / 2 + Math.sin(a) * (h / 2 - 2) * rand(0.5, 1), rand(1, 2.4), 0, Math.PI * 2);
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+  };
+  ctx.save();
+  path();
+  ctx.clip();
+  const cool = seed % 2 ? 222 : 28;
+  const base = ctx.createLinearGradient(0, 0, w * 0.4, h);
+  base.addColorStop(0, `hsl(${cool}, 6%, ${tone + 20}%)`);
+  base.addColorStop(1, `hsl(${cool}, 8%, ${tone - 6}%)`);
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, w, h);
+  // Planos: cuñas desde un punto de fuga interior hacia los vértices, alternando claro/oscuro.
+  const cx = w * rand(0.4, 0.6), cy = h * rand(0.4, 0.55);
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    const mid = Math.atan2((p[1] + q[1]) / 2 - cy, (p[0] + q[0]) / 2 - cx);
+    const lit = Math.cos(mid + 2.2); // luz desde arriba-izquierda
+    ctx.fillStyle = lit > 0 ? `rgba(255,255,255,${0.1 * lit + 0.02})` : `rgba(0,0,0,${-0.28 * lit + 0.04})`;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy); ctx.lineTo(p[0], p[1]); ctx.lineTo(q[0], q[1]);
+    ctx.closePath();
     ctx.fill();
   }
-  // Sombra de contacto abajo.
-  ctx.globalAlpha = 0.4;
-  const sg = ctx.createLinearGradient(0, h * 0.6, 0, h);
-  sg.addColorStop(0, 'rgba(0,0,0,0)');
-  sg.addColorStop(1, '#000');
-  ctx.fillStyle = sg;
-  ctx.fillRect(0, h * 0.6, w, h * 0.4);
-  ctx.restore();
+  // Aristas entre planos y una fisura.
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (const i of [1, 4, 6]) { ctx.moveTo(cx, cy); ctx.lineTo(pts[i][0], pts[i][1]); }
+  ctx.stroke();
+  // Grano fino.
+  for (let i = 0; i < w * 0.9; i++) {
+    ctx.globalAlpha = rand(0.04, 0.1);
+    ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
+    ctx.fillRect(rand(0, w), rand(0, h), 1, 1);
+  }
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+  // Hollín desde abajo (la piedra del fuego se ennegrece).
+  const sg = ctx.createLinearGradient(0, h * 0.45, 0, h);
+  sg.addColorStop(0, 'rgba(10,6,4,0)');
+  sg.addColorStop(1, 'rgba(10,6,4,0.6)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, h * 0.45, w, h * 0.55);
+  // Musgo: una mancha en el filo superior de algunas piedras.
+  if (seed % 3 !== 1) {
+    const mx = w * (seed % 2 ? 0.62 : 0.32);
+    for (let i = 0; i < w * 0.4; i++) {
+      ctx.globalAlpha = rand(0.35, 0.7);
+      ctx.fillStyle = ['#34502f', '#41612f', '#2a4129'][i % 3];
+      ctx.beginPath();
+      ctx.arc(mx + rand(-w * 0.2, w * 0.2), h * 0.2 + rand(-3, 4) + Math.abs(rand(-w * 0.2, w * 0.2)) * 0.25, rand(0.8, 2), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+  // Filo superior claro, contorno oscuro.
+  path();
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.18)';
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.ellipse(w / 2, h / 2, w / 2 - 1, h / 2 - 1, 0, 0, Math.PI * 2);
+  ctx.moveTo(pts[5][0], pts[5][1] + 1);
+  for (const i of [6, 7, 8]) ctx.lineTo(pts[i][0], pts[i][1] + 1);
   ctx.stroke();
 }
 
@@ -599,60 +635,100 @@ function drawDawnRays(ctx, w, h) {
 
 // ---- Pozos por tamaño (ciclo 4) ----
 
-// Bloque de piedra trabajada (rectángulo de esquinas suaves con juntas). Tonos fríos/cálidos por `hue`.
+// Bloque de piedra trabajada: sillar con bisel claro arriba, junta oscura y sombra abajo; esquinas
+// despostilladas en vez de redondeadas. Tonos fríos/cálidos por `hue`.
+function chamferPath(ctx, x, y, w, h, c) {
+  ctx.beginPath();
+  ctx.moveTo(x + c, y);
+  ctx.lineTo(x + w - c * 0.6, y);
+  ctx.lineTo(x + w, y + c * 0.8);
+  ctx.lineTo(x + w - c * 0.3, y + h - c);
+  ctx.lineTo(x + w - c, y + h);
+  ctx.lineTo(x + c * 0.7, y + h);
+  ctx.lineTo(x, y + h - c * 0.6);
+  ctx.lineTo(x + c * 0.3, y + c);
+  ctx.closePath();
+}
+
 function drawBlock(ctx, w, h, hue, light, seed) {
+  const c = Math.min(6, h * 0.2);
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, `hsl(${hue}, 8%, ${light + 14}%)`);
-  g.addColorStop(0.5, `hsl(${hue}, 8%, ${light}%)`);
-  g.addColorStop(1, `hsl(${hue}, 10%, ${light - 12}%)`);
-  roundRectPath(ctx, 1, 1, w - 2, h - 2, Math.min(8, h * 0.25));
+  g.addColorStop(0, `hsl(${hue}, 7%, ${light + 12}%)`);
+  g.addColorStop(0.5, `hsl(${hue}, 7%, ${light}%)`);
+  g.addColorStop(1, `hsl(${hue}, 9%, ${light - 10}%)`);
+  chamferPath(ctx, 1, 1, w - 2, h - 2, c);
   ctx.fillStyle = g;
   ctx.fill();
   ctx.save();
   ctx.clip();
-  for (let i = 0; i < w * 1.1; i++) {
-    ctx.globalAlpha = rand(0.06, 0.2);
-    ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
-    ctx.fillRect(rand(0, w), rand(0, h), rand(1, 2.4), rand(1, 2));
+  // Manchas anchas de tono (la piedra no es pareja) y grano fino.
+  for (let i = 0; i < 5; i++) {
+    ctx.globalAlpha = rand(0.05, 0.12);
+    ctx.fillStyle = i % 2 ? '#000' : '#fff';
+    ctx.beginPath();
+    ctx.ellipse(rand(0, w), rand(0, h), rand(w * 0.15, w * 0.35), rand(h * 0.12, h * 0.3), rand(0, 3), 0, Math.PI * 2);
+    ctx.fill();
   }
+  for (let i = 0; i < w * 0.9; i++) {
+    ctx.globalAlpha = rand(0.04, 0.12);
+    ctx.fillStyle = Math.random() < 0.5 ? '#000' : '#fff';
+    ctx.fillRect(rand(0, w), rand(0, h), 1, 1);
+  }
+  // Fisura.
   ctx.globalAlpha = 0.4;
   ctx.strokeStyle = '#000';
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 0.9;
   ctx.beginPath();
-  ctx.moveTo(w * (0.35 + 0.1 * seed), 1);
-  ctx.lineTo(w * (0.35 + 0.1 * seed) + rand(-3, 3), h - 1);
+  const fx = w * (0.3 + 0.12 * seed);
+  ctx.moveTo(fx, 1); ctx.lineTo(fx + rand(-3, 3), h * 0.45); ctx.lineTo(fx + rand(-4, 4), h * 0.6);
   ctx.stroke();
-  ctx.globalAlpha = 0.45;
-  const sg = ctx.createLinearGradient(0, h * 0.65, 0, h);
-  sg.addColorStop(0, 'rgba(0,0,0,0)');
-  sg.addColorStop(1, '#000');
-  ctx.fillStyle = sg;
-  ctx.fillRect(0, h * 0.65, w, h * 0.35);
-  ctx.restore();
+  // Hollín y sombra de la junta inferior.
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
-  roundRectPath(ctx, 1, 1, w - 2, h - 2, Math.min(8, h * 0.25));
+  const sg = ctx.createLinearGradient(0, h * 0.6, 0, h);
+  sg.addColorStop(0, 'rgba(0,0,0,0)');
+  sg.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(0, h * 0.6, w, h * 0.4);
+  // Bisel superior.
+  ctx.fillStyle = 'rgba(255,255,255,0.2)';
+  ctx.fillRect(0, 1, w, 2);
+  ctx.restore();
+  chamferPath(ctx, 1, 1, w - 2, h - 2, c);
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 }
 
-// Adobe: panes de barro cocido, rojizos, con grietas y manchas de hollín.
+// Adobe: pan de barro apagado (ocre-tostado, no naranja), con manchas de enlucido, briznas de paja,
+// grietas y hollín que sube desde abajo.
 function drawAdobe(ctx, w, h, seed) {
+  const c = Math.min(7, h * 0.22);
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, '#b0704a');
-  g.addColorStop(0.55, '#8a4f33');
-  g.addColorStop(1, '#5a301f');
-  roundRectPath(ctx, 1, 1, w - 2, h - 2, Math.min(10, h * 0.3));
+  g.addColorStop(0, '#a58468');
+  g.addColorStop(0.55, '#85634d');
+  g.addColorStop(1, '#5a4033');
+  chamferPath(ctx, 1, 1, w - 2, h - 2, c);
   ctx.fillStyle = g;
   ctx.fill();
   ctx.save();
   ctx.clip();
-  for (let i = 0; i < w * 1.2; i++) {
-    ctx.globalAlpha = rand(0.08, 0.22);
-    ctx.fillStyle = ['#d89a6a', '#3a1a10', '#6e3a24'][i % 3];
-    ctx.fillRect(rand(0, w), rand(0, h), rand(1, 3), rand(1, 2));
+  for (let i = 0; i < 6; i++) {
+    ctx.globalAlpha = rand(0.08, 0.16);
+    ctx.fillStyle = ['#d8bc9a', '#3a2418', '#c09a76'][i % 3];
+    ctx.beginPath();
+    ctx.ellipse(rand(0, w), rand(0, h), rand(w * 0.12, w * 0.3), rand(h * 0.1, h * 0.28), rand(0, 3), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Paja.
+  ctx.lineWidth = 0.8;
+  for (let i = 0; i < w * 0.5; i++) {
+    ctx.globalAlpha = rand(0.2, 0.5);
+    ctx.strokeStyle = ['#d8c08a', '#8a6a3a'][i % 2];
+    const x = rand(0, w), y = rand(0, h), a = rand(-0.6, 0.6);
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + Math.cos(a) * rand(3, 7), y + Math.sin(a) * rand(3, 7)); ctx.stroke();
   }
   ctx.globalAlpha = 0.5;
-  ctx.strokeStyle = '#2a120a';
+  ctx.strokeStyle = '#2a1a12';
   ctx.lineWidth = 0.9;
   for (let k = 0; k < 2 + seed; k++) {
     ctx.beginPath();
@@ -661,16 +737,19 @@ function drawAdobe(ctx, w, h, seed) {
     while (y < h - 2) { x += rand(-4, 4); y += rand(4, 8); ctx.lineTo(x, y); }
     ctx.stroke();
   }
-  ctx.globalAlpha = 0.5;
-  const sh = ctx.createLinearGradient(0, 0, 0, h);
-  sh.addColorStop(0, 'rgba(20,10,6,0.55)');
-  sh.addColorStop(0.5, 'rgba(20,10,6,0)');
-  ctx.fillStyle = sh;
-  ctx.fillRect(0, 0, w, h);
-  ctx.restore();
+  // Hollín desde abajo y luz en el borde superior.
   ctx.globalAlpha = 1;
-  ctx.strokeStyle = 'rgba(25,10,5,0.7)';
-  roundRectPath(ctx, 1, 1, w - 2, h - 2, Math.min(10, h * 0.3));
+  const sh = ctx.createLinearGradient(0, h * 0.4, 0, h);
+  sh.addColorStop(0, 'rgba(20,12,8,0)');
+  sh.addColorStop(1, 'rgba(20,12,8,0.55)');
+  ctx.fillStyle = sh;
+  ctx.fillRect(0, h * 0.4, w, h * 0.6);
+  ctx.fillStyle = 'rgba(255,235,200,0.22)';
+  ctx.fillRect(0, 1, w, 2);
+  ctx.restore();
+  chamferPath(ctx, 1, 1, w - 2, h - 2, c);
+  ctx.strokeStyle = 'rgba(25,14,8,0.7)';
+  ctx.lineWidth = 1.2;
   ctx.stroke();
 }
 
@@ -693,33 +772,54 @@ function drawWall(ctx, w, h, kind) {
   }
 }
 
+// Poste ceremonial: fuste con vetas, bandas de hierro y remate tallado (no triángulo): capitel ancho con
+// dos "cuernos" y un disco. 28×150, mismo tamaño que antes.
 function drawPost(ctx, w, h) {
   const g = ctx.createLinearGradient(0, 0, w, 0);
-  g.addColorStop(0, '#2a1a10');
-  g.addColorStop(0.35, '#6a4a30');
-  g.addColorStop(1, '#1c1109');
+  g.addColorStop(0, '#24160d');
+  g.addColorStop(0.32, '#74523a');
+  g.addColorStop(0.6, '#4a3321');
+  g.addColorStop(1, '#170d07');
   ctx.fillStyle = g;
-  roundRectPath(ctx, 2, 6, w - 4, h - 6, 5);
+  roundRectPath(ctx, 3, 16, w - 6, h - 16, 4);
   ctx.fill();
-  ctx.fillStyle = '#4a3220';
-  ctx.beginPath();
-  ctx.moveTo(2, 8); ctx.lineTo(w / 2, 0); ctx.lineTo(w - 2, 8);
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+  // Vetas verticales.
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
   ctx.lineWidth = 1;
-  for (let y = 24; y < h - 10; y += 16) {
-    ctx.beginPath();
-    ctx.moveTo(3, y);
-    ctx.lineTo(w - 3, y + rand(-2, 2));
-    ctx.stroke();
+  for (let i = 0; i < 6; i++) {
+    const x = rand(6, w - 6);
+    ctx.beginPath(); ctx.moveTo(x, 18); ctx.lineTo(x + rand(-2, 2), h - 4); ctx.stroke();
   }
+  // Bandas de hierro.
+  for (const y of [38, 78, 118]) {
+    ctx.fillStyle = '#1b1b20';
+    ctx.fillRect(2, y, w - 4, 5);
+    ctx.fillStyle = 'rgba(160,170,190,0.35)';
+    ctx.fillRect(2, y, w - 4, 1);
+  }
+  // Capitel: bloque ancho con cuernos y disco central.
+  const cg = ctx.createLinearGradient(0, 0, 0, 18);
+  cg.addColorStop(0, '#8a6644');
+  cg.addColorStop(1, '#4a3220');
+  ctx.fillStyle = cg;
+  ctx.beginPath();
+  ctx.moveTo(0, 16); ctx.lineTo(1, 6); ctx.lineTo(5, 1); ctx.lineTo(8, 9);
+  ctx.lineTo(w - 8, 9); ctx.lineTo(w - 5, 1); ctx.lineTo(w - 1, 6); ctx.lineTo(w, 16);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = '#c9a26a';
+  ctx.beginPath(); ctx.arc(w / 2, 10, 3.2, 0, Math.PI * 2); ctx.fill();
+  ctx.stroke();
   // Tallado: el brillo de la runa lo pone `rune-glow` encima.
   ctx.strokeStyle = 'rgba(0,0,0,0.65)';
   ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.arc(w / 2, 30, 6, 0, Math.PI * 2);
-  ctx.moveTo(w / 2, 36); ctx.lineTo(w / 2, 56);
-  ctx.moveTo(w / 2 - 6, 46); ctx.lineTo(w / 2 + 6, 46);
+  ctx.moveTo(w / 2 - 5, 52); ctx.lineTo(w / 2, 58); ctx.lineTo(w / 2 + 5, 52);
+  ctx.moveTo(w / 2 - 5, 62); ctx.lineTo(w / 2, 68); ctx.lineTo(w / 2 + 5, 62);
+  ctx.moveTo(w / 2, 58); ctx.lineTo(w / 2, 72);
   ctx.stroke();
 }
 
@@ -788,6 +888,481 @@ function drawBed(ctx, w, h) {
   }
   ctx.globalAlpha = 1;
 }
+
+// ---- Ciclo 5: llama, luz, leña prendida, techo, fondo iluminable ----
+
+// Lengua de llama: gota con punta curva. (cx, baseY) es el centro de la base; hw el semiancho, ht el alto.
+// `lean` desplaza la punta (y curva el flanco), `curl` la dobla hacia el otro lado en el último tramo.
+function tonguePath(ctx, cx, baseY, hw, ht, lean = 0, curl = 0) {
+  const tx = cx + lean, ty = baseY - ht;
+  ctx.beginPath();
+  ctx.moveTo(tx, ty);
+  ctx.bezierCurveTo(cx + hw * 0.25 + lean * 0.55 + curl, baseY - ht * 0.62, cx + hw * 1.2, baseY - ht * 0.28, cx + hw * 0.72, baseY - hw * 0.2);
+  ctx.bezierCurveTo(cx + hw * 0.4, baseY + hw * 0.22, cx - hw * 0.4, baseY + hw * 0.22, cx - hw * 0.72, baseY - hw * 0.2);
+  ctx.bezierCurveTo(cx - hw * 1.2, baseY - ht * 0.28, cx - hw * 0.3 + lean * 0.35 + curl * 0.4, baseY - ht * 0.66, tx, ty);
+  ctx.closePath();
+}
+
+// Llama blanca (se tiñe con el emisor): cuerpo con degradé, núcleo claro más angosto y borde suave.
+function drawFlameTongue(ctx, w, h, lean, curl) {
+  const cx = w / 2, baseY = h - w * 0.28, hw = w * 0.3, ht = h * 0.9;
+  ctx.shadowColor = 'rgba(255,255,255,0.9)';
+  ctx.shadowBlur = Math.max(3, w * 0.07);
+  const body = ctx.createLinearGradient(0, baseY - ht, 0, baseY + hw * 0.2);
+  body.addColorStop(0, 'rgba(255,255,255,0.05)');
+  body.addColorStop(0.35, 'rgba(255,255,255,0.45)');
+  body.addColorStop(1, 'rgba(255,255,255,0.85)');
+  ctx.fillStyle = body;
+  tonguePath(ctx, cx, baseY, hw, ht, lean, curl);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  const core = ctx.createLinearGradient(0, baseY - ht * 0.6, 0, baseY + hw * 0.2);
+  core.addColorStop(0, 'rgba(255,255,255,0)');
+  core.addColorStop(0.5, 'rgba(255,255,255,0.8)');
+  core.addColorStop(1, 'rgba(255,255,255,1)');
+  ctx.fillStyle = core;
+  tonguePath(ctx, cx, baseY, hw * 0.5, ht * 0.62, lean * 0.4, curl * 0.4);
+  ctx.fill();
+}
+
+// Llama base persistente (colores horneados, para mezcla ADD): varias lenguas superpuestas.
+function drawFlameBase(ctx, w, h) {
+  const cx = w / 2, baseY = h - 14;
+  const tongues = [
+    // hw, ht, lean, curl, [pie, medio, punta]
+    [w * 0.34, h * 0.9, w * 0.07, w * 0.08, ['rgba(255,150,40,0.85)', 'rgba(230,70,15,0.55)', 'rgba(120,20,5,0)']],
+    [w * 0.27, h * 0.74, -w * 0.1, -w * 0.06, ['rgba(255,190,70,0.9)', 'rgba(255,110,25,0.65)', 'rgba(200,50,10,0)']],
+    [w * 0.19, h * 0.52, w * 0.04, w * 0.03, ['rgba(255,235,150,0.95)', 'rgba(255,170,50,0.7)', 'rgba(255,110,25,0)']],
+    [w * 0.1, h * 0.3, 0, 0, ['rgba(255,255,235,1)', 'rgba(255,235,150,0.8)', 'rgba(255,200,90,0)']],
+  ];
+  ctx.shadowColor = 'rgba(255,120,30,0.8)';
+  ctx.shadowBlur = 8;
+  for (const [hw, ht, lean, curl, cols] of tongues) {
+    const g = ctx.createLinearGradient(0, baseY - ht, 0, baseY + hw * 0.2);
+    g.addColorStop(0, cols[2]);
+    g.addColorStop(0.45, cols[1]);
+    g.addColorStop(1, cols[0]);
+    ctx.fillStyle = g;
+    tonguePath(ctx, cx, baseY, hw, ht, lean, curl);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Elipse de luz blanca (suelo y piedras). Falloff cuadrático: centro fuerte, borde que muere.
+function drawGlowGround(ctx, w, h) {
+  ctx.save();
+  ctx.scale(1, h / w);
+  const g = ctx.createRadialGradient(w / 2, w / 2, 0, w / 2, w / 2, w / 2);
+  g.addColorStop(0, 'rgba(255,255,255,1)');
+  g.addColorStop(0.2, 'rgba(255,255,255,0.62)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.2)');
+  g.addColorStop(0.8, 'rgba(255,255,255,0.04)');
+  g.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, w);
+  ctx.restore();
+}
+
+// Banda de bruma (blanca, se tiñe y se pone con alpha bajo): manchas anchas y suaves.
+function drawMist(ctx, w, h) {
+  for (let i = 0; i < 26; i++) {
+    const x = rand(-60, w + 60), y = h * rand(0.35, 0.65), rx = rand(120, 300), ry = rand(18, h * 0.42);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, `rgba(255,255,255,${rand(0.1, 0.22)})`);
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+    ctx.restore();
+  }
+}
+
+// Máscara cápsula de una leña (para recortar overlays de leña prendida).
+function logCapsule(ctx, w, h) {
+  const r = h * 0.45;
+  roundRectPath(ctx, 1, 1, w - 2, h - 2, r);
+}
+
+// Brillo de leña prendida: solo cara inferior y extremos (blanco, aditivo/teñible). 128×32.
+function drawLogGlowUnder(ctx, w, h) {
+  ctx.save();
+  logCapsule(ctx, w, h);
+  ctx.clip();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, 'rgba(255,255,255,0.04)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0.18)');
+  g.addColorStop(1, 'rgba(255,255,255,0.95)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  for (const x of [0, w]) {
+    const e = ctx.createRadialGradient(x, h / 2, 1, x, h / 2, h * 1.1);
+    e.addColorStop(0, 'rgba(255,255,255,0.9)');
+    e.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = e;
+    ctx.fillRect(0, 0, w, h);
+  }
+  ctx.restore();
+}
+
+// Grietas incandescentes (blancas, se tiñen de naranja y pulsan). 128×32.
+function drawLogCracks(ctx, w, h) {
+  ctx.save();
+  logCapsule(ctx, w, h);
+  ctx.clip();
+  ctx.lineCap = 'round';
+  ctx.shadowColor = 'rgba(255,255,255,0.9)';
+  ctx.shadowBlur = 4;
+  for (let i = 0; i < 9; i++) {
+    let x = rand(8, w - 8), y = rand(h * 0.25, h * 0.8);
+    ctx.strokeStyle = `rgba(255,255,255,${rand(0.55, 1)})`;
+    ctx.lineWidth = rand(0.9, 1.8);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 4; k++) {
+      x += rand(5, 14) * (Math.random() < 0.8 ? 1 : -1);
+      y += rand(-4, 4);
+      ctx.lineTo(x, Math.max(3, Math.min(h - 3, y)));
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// Leña carbonizada: placas oscuras con grietas por las que se ve el rescoldo. `heavy` 0..1. 128×32.
+function drawLogChar(ctx, w, h, heavy) {
+  ctx.save();
+  logCapsule(ctx, w, h);
+  ctx.clip();
+  ctx.fillStyle = `rgba(10,6,4,${heavy * 0.55})`;
+  ctx.fillRect(0, 0, w, h);
+  const n = Math.round(w * (0.5 + heavy * 0.7));
+  for (let i = 0; i < n; i++) {
+    const x = rand(-4, w), y = rand(-2, h);
+    ctx.globalAlpha = rand(0.35, 0.85) * (0.5 + heavy * 0.5);
+    ctx.fillStyle = ['#0c0807', '#15100d', '#07050a', '#1d1511'][i % 4];
+    roundRectPath(ctx, x, y, rand(5, 14), rand(3.5, 7), 1.5);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // Borde ennegrecido y sombra superior (el fuego cuece de abajo hacia arriba).
+  const s = ctx.createLinearGradient(0, 0, 0, h);
+  s.addColorStop(0, `rgba(5,3,2,${0.25 + heavy * 0.35})`);
+  s.addColorStop(0.55, 'rgba(5,3,2,0)');
+  ctx.fillStyle = s;
+  ctx.fillRect(0, 0, w, h);
+  ctx.restore();
+  ctx.strokeStyle = `rgba(8,5,3,${0.4 + heavy * 0.4})`;
+  ctx.lineWidth = 1.5;
+  logCapsule(ctx, w, h);
+  ctx.stroke();
+}
+
+// Marcador de carga: placa con punta hacia abajo (blanca, se tiñe naranja→rojo). 14×18.
+function drawLoadNotch(ctx, w, h) {
+  ctx.beginPath();
+  ctx.moveTo(1.5, 1.5);
+  ctx.lineTo(w - 1.5, 1.5);
+  ctx.lineTo(w - 1.5, h * 0.62);
+  ctx.lineTo(w / 2, h - 1.5);
+  ctx.lineTo(1.5, h * 0.62);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#fff');
+  g.addColorStop(1, '#c8c8c8');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(20,10,5,0.85)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(20,10,5,0.4)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(w / 2, 4); ctx.lineTo(w / 2, h * 0.55);
+  ctx.stroke();
+}
+
+// Techo de tablas (tileable en horizontal). 128×18.
+function drawRoofPlank(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#6e4c30');
+  g.addColorStop(0.5, '#573a24');
+  g.addColorStop(1, '#2e1d11');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = 'rgba(255,220,170,0.2)';
+  ctx.fillRect(0, 0, w, 2);
+  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+  ctx.lineWidth = 1;
+  for (let y = 5; y < h - 3; y += 5) {
+    ctx.beginPath();
+    ctx.moveTo(0, y + rand(-1, 1));
+    for (let x = 16; x <= w; x += 16) ctx.lineTo(x, y + rand(-1.2, 1.2));
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(15,8,4,0.75)';
+  for (const x of [10, 64, 118]) {
+    ctx.beginPath(); ctx.arc(x, h * 0.5, 1.4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.fillRect(0, h - 2, w, 2);
+}
+
+// Techo de paja (tileable en horizontal), con flecos abajo. 128×36.
+function drawRoofThatch(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, 0, h);
+  g.addColorStop(0, '#8a6a36');
+  g.addColorStop(1, '#5c4424');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h - 8);
+  for (let i = 0; i < 240; i++) {
+    const x = rand(0, w), y = rand(0, h - 6);
+    ctx.strokeStyle = ['#b59248', '#6e5128', '#3f2e17', '#9c7c3c'][i % 4];
+    ctx.globalAlpha = rand(0.35, 0.8);
+    ctx.lineWidth = rand(0.8, 1.6);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + rand(-1.5, 1.5), y + rand(5, 10));
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // Flecos: briznas que cuelgan del borde.
+  for (let x = 0; x < w; x += 3) {
+    ctx.strokeStyle = ['#7a5c2e', '#5a4220', '#96763a'][((x / 3) | 0) % 3];
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x, h - 14);
+    ctx.lineTo(x + rand(-1, 1), h - rand(1, 7));
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(0, 0, w, 3);
+}
+
+// Puntal fino del techo (tileable en vertical). 10×64.
+function drawRoofSupport(ctx, w, h) {
+  const g = ctx.createLinearGradient(0, 0, w, 0);
+  g.addColorStop(0, '#24160d');
+  g.addColorStop(0.4, '#6a4a30');
+  g.addColorStop(1, '#1a0f08');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+  for (let y = 6; y < h; y += 11) {
+    ctx.beginPath(); ctx.moveTo(1, y); ctx.lineTo(w - 1, y + rand(-1.5, 1.5)); ctx.stroke();
+  }
+}
+
+// ---- Ciclo de luz ----
+// Cielos completos W×H. Las capas "-lit" están pintadas en colores de día y se llevan a cada hora con
+// setTint (ver layerTint): la leña, las piedras y el fuego no cambian.
+
+function stars(ctx, count, maxY, aMul = 1) {
+  const tints = ['#ffffff', '#dfe8ff', '#ffe9c8', '#cfd8ff'];
+  for (let i = 0; i < count; i++) {
+    const y = rand(0, maxY);
+    ctx.globalAlpha = rand(0.15, 0.9) * Math.max(0.3, 1 - y / (maxY * 1.1)) * aMul;
+    ctx.fillStyle = tints[(Math.random() * tints.length) | 0];
+    const s = Math.random() < 0.08 ? 2 : 1;
+    ctx.fillRect(rand(0, W), y, s, s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function sunGlow(ctx, x, y, r, inner, outer) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, inner);
+  g.addColorStop(1, outer);
+  ctx.fillStyle = g;
+  ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+
+function cloudBand(ctx, y, count, color, aMin, aMax) {
+  for (let i = 0; i < count; i++) {
+    const x = rand(-100, W + 100), cy = y + rand(-30, 30), rx = rand(70, 190), ry = rand(10, 24);
+    ctx.save();
+    ctx.translate(x, cy);
+    ctx.scale(1, ry / rx);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, rx);
+    g.addColorStop(0, `rgba(${color},${rand(aMin, aMax)})`);
+    g.addColorStop(1, `rgba(${color},0)`);
+    ctx.fillStyle = g;
+    ctx.fillRect(-rx, -rx, rx * 2, rx * 2);
+    ctx.restore();
+  }
+}
+
+function drawSkyDay(ctx, w, h) {
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#3f82c8');
+  sky.addColorStop(0.5, '#86bde6');
+  sky.addColorStop(0.85, '#cfe6ee');
+  sky.addColorStop(1, '#f4e6c2');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  sunGlow(ctx, 300, 150, 340, 'rgba(255,247,215,0.75)', 'rgba(255,240,200,0)');
+  ctx.fillStyle = '#fffbe8';
+  ctx.beginPath(); ctx.arc(300, 150, 30, 0, Math.PI * 2); ctx.fill();
+  cloudBand(ctx, 120, 10, '255,255,255', 0.25, 0.5);
+  cloudBand(ctx, 230, 9, '255,255,255', 0.2, 0.42);
+  cloudBand(ctx, 360, 6, '255,245,230', 0.15, 0.3);
+}
+
+// Atardecer: violeta arriba, magenta, naranja bajo; el sol medio hundido tras las colinas.
+function drawSkyDusk(ctx, w, h) {
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#1d1b46');
+  sky.addColorStop(0.35, '#4a2f6a');
+  sky.addColorStop(0.62, '#a04a72');
+  sky.addColorStop(0.82, '#e0703c');
+  sky.addColorStop(1, '#f7b45a');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  stars(ctx, 90, GROUND_Y * 0.4, 0.6);
+  sunGlow(ctx, 330, GROUND_Y - 105, 420, 'rgba(255,200,110,0.8)', 'rgba(255,130,60,0)');
+  ctx.fillStyle = '#ffe2a0';
+  ctx.beginPath(); ctx.arc(330, GROUND_Y - 100, 34, 0, Math.PI * 2); ctx.fill();
+  cloudBand(ctx, 300, 9, '255,150,120', 0.2, 0.45);
+  cloudBand(ctx, 420, 8, '255,190,120', 0.2, 0.4);
+  cloudBand(ctx, 200, 6, '170,110,200', 0.15, 0.3);
+}
+
+// Noche profunda: más oscura que `bg-sky`, estrellas más densas y luna más fría.
+function drawSkyDeep(ctx, w, h) {
+  const sky = ctx.createLinearGradient(0, 0, 0, GROUND_Y);
+  sky.addColorStop(0, '#010204');
+  sky.addColorStop(0.5, '#04060c');
+  sky.addColorStop(0.85, '#0a0912');
+  sky.addColorStop(1, '#120d12');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
+  stars(ctx, 520, GROUND_Y * 0.7);
+  for (let i = 0; i < 12; i++) {
+    const x = rand(0, w), y = rand(10, GROUND_Y * 0.5);
+    sunGlow(ctx, x, y, 8, 'rgba(255,255,255,0.9)', 'rgba(255,255,255,0)');
+  }
+  const mx = 1080, my = 110;
+  sunGlow(ctx, mx, my, 150, 'rgba(190,205,255,0.22)', 'rgba(160,175,230,0)');
+  ctx.fillStyle = '#d8dcea';
+  ctx.beginPath(); ctx.arc(mx, my, 24, 0, Math.PI * 2); ctx.fill();
+}
+
+const LIT = {
+  hills: { ridge: ['#9fbfa6', '#86ad92'], fog: '170,200,190' },
+  far: '#4f8068',
+  mid: '#356650',
+  near: '#1f4a30',
+  ground: ['#7a6a48', '#5a4c34', '#3a3020'],
+};
+
+function drawHillsLit(ctx, w) {
+  const ridge = (base, amp, f1, f2, ph, color) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    for (let x = 0; x <= w; x += 20) ctx.lineTo(x, base - Math.sin(x * f1 + ph) * amp - Math.sin(x * f2 + ph * 2) * amp * 0.4);
+    ctx.lineTo(w, GROUND_Y);
+    ctx.fill();
+  };
+  ridge(GROUND_Y - 150, 40, 0.005, 0.016, 1.3, LIT.hills.ridge[0]);
+  fog(ctx, GROUND_Y - 220, GROUND_Y - 100, w, LIT.hills.fog, 0, 0.55);
+  ridge(GROUND_Y - 105, 32, 0.007, 0.02, 4.1, LIT.hills.ridge[1]);
+}
+
+// Pino con volumen: lado izquierdo algo más claro (luz) y base más oscura, para que lea con luz de día.
+function pineLit(ctx, x, base, height, color) {
+  pine(ctx, x, base, height, color);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  const g = ctx.createLinearGradient(x - height * 0.15, 0, x + height * 0.15, 0);
+  g.addColorStop(0, 'rgba(255,255,255,0.12)');
+  g.addColorStop(0.5, 'rgba(255,255,255,0)');
+  g.addColorStop(1, 'rgba(0,0,0,0.22)');
+  ctx.fillStyle = g;
+  ctx.fillRect(x - height * 0.4, base - height, height * 0.8, height + 14);
+  ctx.restore();
+}
+
+function treeLayerLit(ctx, w, count, baseMin, baseMax, hMin, hMax, color) {
+  for (let i = 0; i < count; i++) pineLit(ctx, rand(0, w), GROUND_Y - rand(baseMin, baseMax), rand(hMin, hMax), color);
+}
+
+function drawTreesFarLit(ctx, w) {
+  treeLayerLit(ctx, w, 60, 50, 85, 90, 150, LIT.far);
+  fog(ctx, GROUND_Y - 230, GROUND_Y - 40, w, '170,200,190', 0, 0.45);
+}
+function drawTreesMidLit(ctx, w) {
+  treeLayerLit(ctx, w, 42, 12, 42, 120, 200, LIT.mid);
+  fog(ctx, GROUND_Y - 160, GROUND_Y, w, '150,180,160', 0, 0.3);
+}
+function drawTreesNearLit(ctx, w) {
+  treeLayerLit(ctx, w, 20, -2, 8, 170, 280, LIT.near);
+}
+
+function drawGroundLit(ctx, w, h) {
+  const ground = ctx.createLinearGradient(0, GROUND_Y, 0, h);
+  ground.addColorStop(0, LIT.ground[0]);
+  ground.addColorStop(0.25, LIT.ground[1]);
+  ground.addColorStop(1, LIT.ground[2]);
+  ctx.fillStyle = ground;
+  ctx.fillRect(0, GROUND_Y - 2, w, h - GROUND_Y + 2);
+  fog(ctx, GROUND_Y - 30, GROUND_Y + 2, w, '150,170,130', 0, 0.35);
+  for (let i = 0; i < 700; i++) {
+    ctx.globalAlpha = rand(0.1, 0.35);
+    ctx.fillStyle = Math.random() < 0.5 ? '#a8946a' : '#2a2014';
+    ctx.fillRect(rand(0, w), rand(GROUND_Y, h), rand(1, 4), rand(1, 2));
+  }
+  for (let i = 0; i < 60; i++) {
+    ctx.globalAlpha = rand(0.3, 0.6);
+    ctx.fillStyle = ['#8a5a26', '#a8702f', '#6a4620'][i % 3];
+    ctx.save();
+    ctx.translate(rand(0, w), rand(GROUND_Y + 4, h));
+    ctx.rotate(rand(0, Math.PI));
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rand(2, 4), rand(0.8, 1.5), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 320; i++) {
+    const x = rand(0, w);
+    const y = GROUND_Y + rand(-1, 60) * Math.random();
+    const near = (y - GROUND_Y) / 60;
+    ctx.strokeStyle = ['#4a6a2a', '#5e7e34', '#7c9640', '#3a5422'][i % 4];
+    ctx.globalAlpha = rand(0.55, 0.95);
+    ctx.lineWidth = rand(0.8, 1.6);
+    const blades = 2 + ((Math.random() * 3) | 0);
+    for (let b = 0; b < blades; b++) {
+      const bh = rand(5, 12) * (0.7 + near * 0.8);
+      ctx.beginPath();
+      ctx.moveTo(x + b * 2, y);
+      ctx.quadraticCurveTo(x + b * 2 + rand(-3, 3), y - bh * 0.6, x + b * 2 + rand(-5, 5), y - bh);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// Color con el que se ve cada capa "-lit" en cada hora (el mismo que tenían las capas de noche originales).
+// layerTint(capa, fase) devuelve el entero para setTint; capa: hills|far|mid|near|ground;
+// fase: day|dusk|dawn|night|deep. Cada canal del destino es ≤ al de la base, por eso se puede con tint.
+const LIT_BASE = { hills: '#86ad92', far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] };
+const LIT_TARGET = {
+  day: { hills: '#86ad92', far: LIT.far, mid: LIT.mid, near: LIT.near, ground: LIT.ground[1] },
+  dusk: { hills: '#5a3c58', far: '#3e2c4a', mid: '#2a1c34', near: '#140c1a', ground: '#4a2e22' },
+  dawn: { hills: '#6a5062', far: '#4a3a52', mid: '#32283e', near: '#1a1424', ground: '#4e3a2c' },
+  night: { hills: '#1d1a2e', far: '#17131f', mid: '#0e0b15', near: '#07050a', ground: '#241810' },
+  deep: { hills: '#100e1a', far: '#0c0a12', mid: '#07060b', near: '#030203', ground: '#120b08' },
+};
+export function layerTint(layer, phase) {
+  const b = hexRgb(LIT_BASE[layer]);
+  const t = hexRgb((LIT_TARGET[phase] || LIT_TARGET.night)[layer]);
+  const c = b.map((v, i) => Math.max(0, Math.min(255, Math.round((t[i] / v) * 255))));
+  return (c[0] << 16) | (c[1] << 8) | c[2];
+}
+export const SKY_KEYS = { day: 'sky-day', dusk: 'sky-dusk', dawn: 'sky-dawn', night: 'bg-sky', deep: 'sky-deep' };
 
 export function createTextures(scene) {
   for (const [key, wood] of Object.entries(WOODS)) {
@@ -1010,6 +1585,37 @@ export function createTextures(scene) {
     ctx.fillRect(0, 0, w, h);
     ctx.globalCompositeOperation = 'source-over';
   });
+
+  // ---- Ciclo 5 ----
+  // Llama (blancas, para teñir con el emisor): variantes de gota afilada con punta curva.
+  canvasTex(scene, 'flame-a', 48, 120, (ctx, w, h) => drawFlameTongue(ctx, w, h, 0, 0));
+  canvasTex(scene, 'flame-b', 48, 120, (ctx, w, h) => drawFlameTongue(ctx, w, h, 7, 6));
+  canvasTex(scene, 'flame-c', 48, 120, (ctx, w, h) => drawFlameTongue(ctx, w, h, -7, -6));
+  canvasTex(scene, 'flame-lick', 24, 60, (ctx, w, h) => drawFlameTongue(ctx, w, h, 3, 3));
+  canvasTex(scene, 'flame-core', 32, 56, (ctx, w, h) => drawFlameTongue(ctx, w, h, 0, 0));
+  canvasTex(scene, 'flame-base', 160, 220, drawFlameBase);
+  // Luz
+  canvasTex(scene, 'glow-ground', 512, 128, drawGlowGround);
+  canvasTex(scene, 'mist', W, 160, drawMist);
+  // Leña prendida / carbonizada (128×32, escalar a largo×grosor de la leña)
+  canvasTex(scene, 'log-glow-under', 128, 32, drawLogGlowUnder);
+  canvasTex(scene, 'log-cracks', 128, 32, drawLogCracks);
+  canvasTex(scene, 'log-char0', 128, 32, (ctx, w, h) => drawLogChar(ctx, w, h, 0.35));
+  canvasTex(scene, 'log-char1', 128, 32, (ctx, w, h) => drawLogChar(ctx, w, h, 1));
+  // Pozo
+  canvasTex(scene, 'load-notch', 14, 18, drawLoadNotch);
+  canvasTex(scene, 'roof-plank', 128, 18, drawRoofPlank);
+  canvasTex(scene, 'roof-thatch', 128, 36, drawRoofThatch);
+  canvasTex(scene, 'roof-support', 10, 64, drawRoofSupport);
+  // Ciclo de luz
+  canvasTex(scene, 'sky-day', W, H, drawSkyDay);
+  canvasTex(scene, 'sky-dusk', W, H, drawSkyDusk);
+  canvasTex(scene, 'sky-deep', W, H, drawSkyDeep);
+  canvasTex(scene, 'bg-hills-lit', W, H, drawHillsLit);
+  canvasTex(scene, 'bg-trees-far-lit', W, H, drawTreesFarLit);
+  canvasTex(scene, 'bg-trees-mid-lit', W, H, drawTreesMidLit);
+  canvasTex(scene, 'bg-trees-near-lit', W, H, drawTreesNearLit);
+  canvasTex(scene, 'bg-ground-lit', W, H, drawGroundLit);
 
   canvasTex(scene, 'bellows', 120, 56, (ctx) => {
     ctx.fillStyle = '#b08a3a';

@@ -14,9 +14,7 @@ import { Pit } from '../objects/Pit.js';
 import { Weather } from '../objects/Weather.js';
 import { createTextures, W, H, GROUND_Y } from '../gfx/textures.js';
 import { pointSegDist, clamp } from '../utils/geom.js';
-import { slotsFor, pickSlot, SNAP_R, SNAP_R_TOUCH } from '../utils/slots.js';
-
-const SLOT_TINT = { base: 0xd9c6a0, stack: 0xe8b86a, bridge: 0xffa84d, tipi: 0x9fd8c8 };
+import { SlotController } from './SlotController.js';
 import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE } from '../data/sizes.js';
 
 // Área de leña de un tronco (la capacidad se muestra en "troncos equivalentes").
@@ -67,12 +65,7 @@ export class GameScene extends Phaser.Scene {
 
     this.warm = this.add.rectangle(0, 0, W, H, 0xff6a20).setOrigin(0).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0).setDepth(55);
     this.coldTint = this.add.rectangle(0, 0, W, H, 0x1c2f78).setOrigin(0).setAlpha(0).setDepth(56);
-    this.aimGfx = this.add.graphics().setDepth(85).setBlendMode(Phaser.BlendModes.ADD);
-    // siluetas de las ranuras magnéticas (pools de sprites; ver updateSlots)
-    this.slotGhosts = [];
-    this.slotHi = [];
-    this.slotPins = [];
-    this.slotShadows = [];
+    this.slotsCtl = new SlotController(this);
     this.vignette = this.add.image(0, 0, 'vignette').setOrigin(0).setDepth(60);
 
     this.orbs = [];
@@ -254,13 +247,20 @@ export class GameScene extends Phaser.Scene {
 
   // --- Entrada ---
 
+  // Leña bajo el puntero. Si el punto cae dentro de varias gana la de más arriba y a la vista (la más
+  // alta en pantalla; la que está encima de la pila, no la de abajo); si no cae dentro de ninguna, la
+  // más cercana dentro del alcance (28 px con el dedo, 8 con el mouse).
   logAt(x, y) {
+    const reach = this.touch ? 28 : 8;
     let best = null;
-    let bd = Infinity;
+    let bs = Infinity;
     for (const l of this.fire.logs) {
-      if (l.state === 'ceniza') continue;
+      if (l.state === 'ceniza' || l.dead) continue;
       const d = pointSegDist(x, y, ...l.endpoints()) - l.thickness / 2;
-      if (d < (this.touch ? 24 : 8) && d < bd) { bd = d; best = l; }
+      if (d >= reach) continue;
+      // dentro (d <= 0): ordena por altura; fuera: por distancia, siempre después de las que están dentro
+      const score = d <= 0 ? l.y - 1e4 : d;
+      if (score < bs) { bs = score; best = l; }
     }
     return best;
   }
@@ -285,6 +285,7 @@ export class GameScene extends Phaser.Scene {
       }
       const x = p.worldX;
       const y = p.worldY;
+      this.hoverLog = null;
       this.down = { x, y, t: this.time.now };
       // En touch no hay "pasar el mouse": el toque también junta los chispazos cercanos.
       if (this.touch) this.collectOrbsNear(x, y);
@@ -338,8 +339,12 @@ export class GameScene extends Phaser.Scene {
       }
       this.collectOrbsNear(x, y);
       let cursor = 'default';
+      this.hoverLog = null;
       if (this.drag) cursor = 'grabbing';
-      else if (this.logAt(x, y) || this.slotAt(x, y)) cursor = 'grab';
+      else if (this.logAt(x, y) || this.slotAt(x, y)) {
+        cursor = 'grab';
+        if (!this.touch && !p.wasTouch) this.hoverLog = this.logAt(x, y); // resalte solo con mouse y sin arrastrar
+      }
       else if (this.state.bought.fuelle && this.fire.pitAt(x, y) && this.fire.pitIsLit(this.fire.pitAt(x, y))) cursor = 'pointer';
       this.input.setDefaultCursor(cursor);
     });
@@ -479,10 +484,16 @@ export class GameScene extends Phaser.Scene {
     // Soltada con una ranura resaltada: encaja (salvo que el pozo esté lleno).
     if (!noSnap && slot && slotPit && !log.dead && slotPit.loadRatio <= 1.05) {
       this.fire.snapLog(log, slotPit, slot);
-      if (mirror) this.tipiNotice(slotPit, 'Se encaja del otro lado', '#ffd9a0');
+      if (mirror) this.slotsCtl.tipiNotice(slotPit, 'Se encaja del otro lado', '#ffd9a0');
     } else if (!noSnap && !slot && tiltedAim && slotPit && !log.dead && this.fire.slotted(slotPit).some((o) => o.slot.kind === 'tipi')
       && !slotPit.slots.some((q) => q.kind === 'tipi')) {
-      this.tipiNotice(slotPit, 'No hay más lugar en el tipi', '#ff9a80');
+      this.slotsCtl.tipiNotice(slotPit, 'No hay más lugar en el tipi', '#ff9a80');
+    }
+    // Soltada sin ranura dentro de un pozo: unos instantes de amortiguación para que se asiente sin rebotar.
+    if (pit && !log.snapping && !log.slot && !log.dead) {
+      s.setFrictionAir(0.1);
+      s.setAngularVelocity(clamp(s.body.angularVelocity, -0.15, 0.15));
+      log.settleT = 0.5;
     }
     // Un leño que no cabe horizontal en el pozo (tronco grueso en pozo chico) no se queda apoyado en las
     // piedras: se inclina lo justo para caer adentro.
@@ -594,7 +605,7 @@ export class GameScene extends Phaser.Scene {
     // Los eventos de escena sobreviven a scene.restart(): sin esto cada reinicio duplicaba los listeners
     // (texto "¡Armaste un tipi!" doble, sonidos y flashes repetidos).
     for (const name of ['log:rotate', 'log:rest', 'log:overflow', 'log:returned', 'structure:formed', 'structure:lost', 'pit:grow', 'log:snap', 'log:unsnap']) ev.off(name);
-    ev.on('log:snap', (e) => this.onSlotSnap(e));
+    ev.on('log:snap', (e) => this.slotsCtl.onSlotSnap(e));
     ev.on('log:unsnap', ({ log, pit, reason }) => {
       if (pit?.snapChain && reason !== 'grab') pit.snapChain = null;
       if (reason === 'grab' && pit?.snapChain) pit.snapChain.n = Math.max(0, pit.snapChain.n - 1);
@@ -693,179 +704,6 @@ export class GameScene extends Phaser.Scene {
         cabinPieces: this.fire.slotted(p).filter((o) => o.slot.kind !== 'tipi').length,
       };
     });
-  }
-
-  // Ranuras magnéticas: mientras se arrastra leña sobre un pozo se calculan las ranuras libres y
-  // habilitadas, se resalta la mejor dentro del radio magnético y se tira suave hacia ella.
-  updateSlots() {
-    const d = this.drag;
-    for (const q of this.fire.pits) if (!d || q !== d.slotPit) q.slots = [];
-    this.slotPoolTrim(this.slotGhosts, 0);
-    this.slotPoolTrim(this.slotHi, 0);
-    this.slotPoolTrim(this.slotPins, 0);
-    if (!d) return;
-    const l = d.log;
-    const prevSlot = d.slot;
-    d.slot = null;
-    d.slotPit = null;
-    const body = l.sprite?.body;
-    if (!body || l.dead || l.wood.shape === 'cone') return;
-    let pit = null;
-    for (const q of this.fire.pits) {
-      if (Math.abs(l.x - q.x) < q.half + 50 && l.y > q.top - 80 && (!pit || Math.abs(l.x - q.x) < Math.abs(l.x - pit.x))) pit = q;
-    }
-    if (!pit || pit.loadRatio > 1.05) return; // pozo lleno: nada se ofrece, rige el desborde
-    pit.slots = slotsFor(pit, l, GROUND_Y, this.fire.slotted(pit, l));
-    d.slotPit = pit;
-    const radius = this.touch ? SNAP_R_TOUCH : SNAP_R;
-    d.slot = pickSlot(pit.slots, l.x, l.y, body.angle, d.aim != null, radius, prevSlot);
-    // Pata inclinada sin ranura libre de su lado: se ofrece la del lado opuesto (ángulo espejado).
-    d.mirror = false;
-    d.tiltedAim = d.aim != null && Math.abs(Math.sin(body.angle)) > 0.35;
-    if (!d.slot && d.tiltedAim) {
-      const alt = pickSlot(pit.slots.filter((q) => q.kind === 'tipi'), l.x, l.y, -body.angle, true, radius, prevSlot);
-      if (alt) { d.slot = alt; d.mirror = true; }
-    }
-    // Tirón suave del punto de agarre hacia la ranura resaltada.
-    if (d.px != null) {
-      const k = d.slot ? 0.4 : 0;
-      d.c.pointA.x = clamp(d.px + (d.slot ? (d.slot.x - d.px) * k : 0), 10, W - 10);
-      d.c.pointA.y = clamp(d.py + (d.slot ? (d.slot.y - d.py) * k : 0), -200, GROUND_Y + 30);
-    }
-    const pulse = 0.75 + 0.25 * Math.sin(this.time.now / 140);
-    let gi = 0;
-    let pi = 0;
-    for (const s of pit.slots) {
-      const hi = s === d.slot;
-      const sp = this.slotPoolGet(this.slotGhosts, gi++, 'slot-ghost', 84);
-      sp.setPosition(s.x, s.y).setRotation(s.angle).setDisplaySize(s.len, s.th)
-        .setTint(SLOT_TINT[s.kind] ?? 0xd9c6a0).setAlpha(hi ? 0.35 : 0.8);
-      if (hi) {
-        const h = this.slotPoolGet(this.slotHi, 0, 'slot-ghost-hi', 85);
-        h.setPosition(s.x, s.y).setRotation(s.angle).setDisplaySize(s.len + 6, s.th + 6)
-          .setAlpha(0.6 + 0.4 * pulse);
-        // marcas de apoyo en los extremos de la pieza
-        const hl = s.len / 2 - 4;
-        for (const sg of [-1, 1]) {
-          const pn = this.slotPoolGet(this.slotPins, pi++, 'slot-pin', 85);
-          pn.setPosition(s.x + Math.cos(s.angle) * hl * sg, s.y + Math.sin(s.angle) * hl * sg + s.th / 2)
-            .setTint(0xfff0c0).setAlpha(0.85 + 0.15 * pulse).setScale(1.1);
-        }
-      }
-    }
-    this.slotPoolTrim(this.slotGhosts, gi);
-    this.slotPoolTrim(this.slotPins, pi);
-    if (!d.slot) this.slotPoolTrim(this.slotHi, 0);
-  }
-
-  // Aviso corto sobre el pozo (tipi); con enfriamiento para que no repita en cada leña.
-  tipiNotice(pit, text, color) {
-    const now = this.time.now;
-    if (this.tipiNoticeT && now - this.tipiNoticeT < 2500) return;
-    this.tipiNoticeT = now;
-    this.floatText(pit.x, GROUND_Y - 200, text, color, 1);
-  }
-
-  // Pool de sprites: se crean una vez y se ocultan al sobrar.
-  slotPoolGet(pool, i, key, depth) {
-    let s = pool[i];
-    if (!s) {
-      s = this.add.image(0, 0, key).setDepth(depth);
-      pool[i] = s;
-    }
-    return s.setVisible(true);
-  }
-
-  slotPoolTrim(pool, used) {
-    for (let i = used; i < pool.length; i++) pool[i].setVisible(false);
-  }
-
-  // Sombra de contacto bajo cada leña encajada (debajo del sprite, así no tapa la llama).
-  updateSlotShadows() {
-    let n = 0;
-    for (const l of this.fire.logs) {
-      if (!l.slot || l.dead || l.state === 'ceniza' || !l.sprite?.body) continue;
-      const sh = this.slotPoolGet(this.slotShadows, n++, 'shadow-contact', 19);
-      const a = l.sprite.rotation;
-      const tilt = Math.abs(Math.sin(a)) > 0.5;
-      sh.setPosition(l.x, l.y + l.thickness * 0.5 + 1).setRotation(tilt ? 0 : a)
-        .setDisplaySize(tilt ? l.thickness * 1.6 : l.length * 0.95, Math.max(8, l.thickness * 0.5))
-        .setAlpha(tilt ? 0.5 : 0.8);
-    }
-    this.slotPoolTrim(this.slotShadows, n);
-  }
-
-  // Imán audible: un tick al resaltar una ranura distinta. Histéresis temporal para que no repiquetee
-  // si el resaltado salta entre dos ranuras vecinas.
-  slotMagnetTick() {
-    const s = this.drag?.slot || null;
-    if (s && s !== this.lastMagnetSlot && this.time.now - (this.lastMagnetT || 0) > 180) {
-      this.audio.slotTick();
-      this.lastMagnetT = this.time.now;
-    }
-    this.lastMagnetSlot = s;
-  }
-
-  // Encaje: clac con tono creciente por pieza de la misma estructura, polvo y chispas en el contacto,
-  // y un asentamiento visual (halo) cuando termina la animación de 150 ms. No toca el cuerpo físico.
-  onSlotSnap({ log, pit, slot }) {
-    const now = this.time.now;
-    const ch = pit.snapChain && now - pit.snapChain.t < 7000 ? pit.snapChain : (pit.snapChain = { n: 0, t: now });
-    ch.t = now;
-    this.audio.snapClack(log.wood.weight, ch.n);
-    ch.n++;
-    if (!this.fx) return;
-    const k = this.fire.fxScale;
-    const heavy = log.wood.weight === 'heavy' ? 1.5 : log.wood.weight === 'medium' ? 1 : 0.7;
-    const cx = slot.x;
-    const cy = slot.y + slot.th / 2;
-    this.time.delayedCall(140, () => {
-      if (!log.sprite?.active || !log.slot) return;
-      this.fire.ashDust.emitParticleAt(cx - slot.len * 0.3, cy, Math.max(1, Math.round(2 * heavy * k)));
-      this.fire.ashDust.emitParticleAt(cx + slot.len * 0.3, cy, Math.max(1, Math.round(2 * heavy * k)));
-      this.fire.sparkAt({ x: cx, y: cy }, 1 + Math.floor(Math.random() * 3));
-      log.pop(0.4);
-    });
-  }
-
-  // Guía de ángulo mientras se rota la leña agarrada: arco desde la horizontal, marcas en 45° y 60°.
-  drawAimGhost() {
-    const g = this.aimGfx;
-    g.clear();
-    const d = this.drag;
-    if (!this.fx || !d || !d.lastRotT || !d.log.sprite?.body) return;
-    const age = this.time.now - d.lastRotT;
-    if (age > 1400) return;
-    const fade = Math.min(1, (1400 - age) / 500);
-    const l = d.log;
-    const cx = l.x;
-    const cy = l.y;
-    const R = Math.max(54, l.length * 0.55);
-    // Ángulo de la leña plegado a [-90°, 90°] (una leña no tiene "cabeza").
-    let a = Phaser.Math.Angle.Wrap(l.sprite.body.angle);
-    if (a > Math.PI / 2) a -= Math.PI;
-    if (a < -Math.PI / 2) a += Math.PI;
-    const deg = Phaser.Math.RadToDeg(a);
-    // Horizontal de referencia, muy tenue.
-    g.lineStyle(1, 0xffe9b0, 0.18 * fade);
-    g.lineBetween(cx - R, cy, cx + R, cy);
-    // Marcas a 45° y 60° de la horizontal (a ambos lados); se encienden si estás cerca.
-    for (const m of [45, 60]) {
-      for (const sgn of [-1, 1]) {
-        const r = Phaser.Math.DegToRad(m * sgn);
-        const near = Math.abs(deg - m * sgn) < 4;
-        g.lineStyle(near ? 3 : 2, near ? 0xffd36b : 0xffe9b0, (near ? 0.9 : 0.35) * fade);
-        g.lineBetween(cx + Math.cos(r) * (R - 6), cy + Math.sin(r) * (R - 6), cx + Math.cos(r) * (R + 8), cy + Math.sin(r) * (R + 8));
-      }
-    }
-    // Arco desde la horizontal hasta el ángulo actual.
-    g.lineStyle(2, 0xffb347, 0.6 * fade);
-    g.beginPath();
-    g.arc(cx, cy, R, 0, a, a < 0);
-    g.strokePath();
-    // Eje de la leña, tenue.
-    g.lineStyle(1, 0xffb347, 0.4 * fade);
-    g.lineBetween(cx - Math.cos(a) * R, cy - Math.sin(a) * R, cx + Math.cos(a) * R, cy + Math.sin(a) * R);
   }
 
   // Agrandar el pozo: sonido grave, shake, piedras que caen, llamarada y brasas.
@@ -1654,10 +1492,11 @@ export class GameScene extends Phaser.Scene {
       }
 
       this.updateDragRotation(dt);
-      this.updateSlots();
-      this.updateSlotShadows();
-      this.slotMagnetTick();
-      this.drawAimGhost();
+      this.slotsCtl.updateSlots();
+      this.slotsCtl.updateSlotShadows();
+      this.slotsCtl.slotMagnetTick();
+      this.slotsCtl.drawAimGhost();
+      this.slotsCtl.drawHover();
       this.updateStray(dt);
 
       this.checkTimer += dt;

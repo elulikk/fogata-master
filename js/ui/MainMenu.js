@@ -87,7 +87,12 @@ export class MainMenu {
     return out;
   }
 
-  hasSave() { return !!store.get(KEY); }
+  // Hay partida real: guardado con progreso (un guardado vacío, tras "Partida nueva", no cuenta).
+  hasSave() {
+    const raw = store.get(KEY);
+    const i = raw && infoOf(decode(raw));
+    return !!i && (i.calor > 0 || i.level > 1);
+  }
 
   // Antes de pisar la partida actual se deja una copia (se puede cargar desde "Copia previa").
   backup() {
@@ -210,6 +215,7 @@ export class MainMenu {
         ${this.btn('resume', 'Continuar', { primary: true })}
         ${this.btn('save', 'Guardar')}
         ${this.btn('load', 'Cargar')}
+        ${this.btn('howto', 'Cómo jugar')}
         ${this.btn('settings', 'Ajustes')}
         ${this.btn('title', 'Volver al título')}
       </div>`;
@@ -249,13 +255,25 @@ export class MainMenu {
       </div>`;
   }
 
-  screen_credits() {
-    return `<h2 id="mm-title">Cómo armar y créditos</h2>
+  screen_howto() {
+    return `<h2 id="mm-title">Cómo jugar</h2>
       <ul class="mm-howto">
-        <li><b>Base:</b> soltá la leña cerca de una silueta del piso y encaja sola.</li>
-        <li><b>Cabaña:</b> dos bases separadas y un puente encima.</li>
-        <li><b>Tipi:</b> inclinala ±60° (rueda, Q/E o ↺ ↻) y soltala a los costados.</li>
+        <li><b>Arrastrar:</b> llevá la leña al pozo; cerca de una silueta del piso, encaja sola.</li>
+        <li><b>Prender:</b> tocá la leña para usar un fósforo.</li>
+        <li><b>Rotar:</b> rueda, Q/E o clic derecho (en táctil, ↺ ↻).</li>
+        <li><b>Cabaña:</b> dos bases separadas y un puente encima (pozo tamaño 3 o más).</li>
+        <li><b>Tipi:</b> inclinala ±60° y soltala a los costados.</li>
+        <li><b>Noche:</b> mantené el calor/s por encima de la meta hasta el amanecer.</li>
+        <li><b>Atajos:</b> S tienda · C construir · B bosque · M sonido · Esc pausa.</li>
       </ul>
+      <div class="menu-row">
+        ${this.btn('retut', 'Ver la guía paso a paso', { cls: 'ghost' })}
+        ${this.btn('back', 'Volver', { primary: true })}
+      </div>`;
+  }
+
+  screen_credits() {
+    return `<h2 id="mm-title">Créditos</h2>
       <p class="mm-credits">Fogata Master es un juego de fogatas hecho con Phaser 3 y Matter.js.<br>
       Las texturas, el fuego y el sonido se generan por código.<br>Gracias por quedarte un rato al calor. 🔥</p>
       <div class="menu-row">${this.btn('back', 'Volver', { primary: true })}</div>`;
@@ -287,6 +305,8 @@ export class MainMenu {
       case 'save': return this.go('save');
       case 'settings': return this.go('settings');
       case 'credits': return this.go('credits');
+      case 'howto': return this.go('howto');
+      case 'retut': this.ui.tutorial('restart'); return this.close();
       case 'title': return this.open('title');
       case 'import': return $('btn-import').click();
       case 'new': return this.askNew();
