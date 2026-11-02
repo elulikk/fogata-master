@@ -265,3 +265,21 @@ Archivos: `Ui.js`, `MainMenu.js`, `index.html`, `style.css`. Probado a mano en 1
 5. `setHint(text, false, urgent)` en `update()` si se quiere marcar urgencias sin depender del texto.
 
 **No verificado**: el tutorial con el juego real (solo eventos llamados a mano), táctil, y el 812×375 de los cambios nuevos (la etiqueta y el HUD se vieron en pantalla de escritorio pequeña). El desglose abierto empuja hacia abajo la barra de nivel (no flota).
+
+## C5 fase 2 (conexión con la escena, contraste, móvil)
+
+**GameScene.js** (único dueño este turno): `create()` llama `ui.tutorial('load', {progress, size})` (progress = calor total > 120, nivel > 1 o algo desbloqueado); `startDrag` → 'grab'; `endDrag` → 'drop' (solo si la suelta el jugador sobre un pozo); `log:snap` → 'snap'; `log:rotate` → 'rotate'; `fire.onIgnite` → 'ignite' (antes del corte por `fx`); `structure:formed` → `structure:tipi|cabana`; `pit:grow` → 'pit:grow' `{size}`. `pitInfoList` suma `bonus` (calor de la estructura × calidad) y `slotsTotal` (ocupadas + libres, solo mientras se arrastra; fuera del arrastre `slotsTotal` es 0 y la etiqueta no muestra ranuras). `bindUi.nextGoal = () => state.nextGoal({ rain: weather.rain })`. Las urgencias de `setHint` se deducen por texto en la UI (no hizo falta marcar nada en la escena).
+
+**Probado en 127.0.0.1:8080** (partida vacía respaldada y restaurada; `locked = true`; pestaña cerrada), con el panel oculto: `game.step()` para avanzar y MouseEvent reales con `left_click_drag` / `left_click`:
+- "Jugar" → paso **arrastrar**; un arrastre real de una rama al pozo cumplió **arrastrar + encajar** de una vez (cumplir un paso cumple los anteriores) → paso **prender**; el clic sobre la rama gastó el fósforo y, tras ~240 cuadros, 'ignite' llegó y pasó a **tipi**. Ningún paso quedó trabado. Texto corto y a tiempo (el primero sale al abrir).
+- Urgencia ("Se está ahogando…") interrumpe y, al limpiarla, vuelve el paso en curso. `structure:formed` emitido a mano cierra el tipi; la cabaña no aparece con tamaño < 3 (probado con API).
+- Con partida (calor 500) el tutorial no arranca ni deja pista; `localStorage['fogata-ui-tut']` guarda el avance.
+- `nextGoal` real se ve en el HUD ("⏳ Seguí hasta 1600 🔥…").
+
+**Contraste**: de día (cielo claro) y atardecer el HUD de calor lleva fondo oscuro suave (`#ui.sky-day/-dusk`, clase puesta por `Ui.update` desde `skyLabel`); en día también chip de fósforos, pista, etiqueta y pronóstico más opacos. Usé screenshot real del panel (no `toDataURL`) en día, atardecer (primer arranque) y 812×375; noche no se re-capturó (el fondo oscuro es el diseño original).
+
+**812×375**: sin scroll horizontal. Objetivo, pista, etiqueta y calor/s se leen; la etiqueta del pozo rozaba el botón "Ir al bosque" → en compact barra y márgenes más cortos (no re-capturado tras ese ajuste). Con 2 pozos juntos podría haber roce.
+
+**Desglose del calor/s**: ahora flota (absoluto), ya no empuja la barra de nivel.
+
+**No verificado**: táctil real (dock, segundo dedo, hint táctil), rotar con rueda/Q·E durante el arrastre real y soltar un tipi real (probé 'rotate' y el tipi por eventos, no con física), noche con la UI nueva, etiqueta de 2 pozos en compact.

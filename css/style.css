@@ -1550,3 +1550,29 @@ kbd {
 #goal .g-bar { height: 4px; margin-top: 3px; border-radius: 3px; background: rgba(255, 255, 255, 0.12); overflow: hidden; }
 #goal .g-bar b { display: block; height: 100%; width: 0; background: #ffd36b; transition: width 0.3s; }
 #ui.compact #goal { width: 190px; font-size: 12px; }
+
+/* ===== C5 fase 2: contraste según la luz del cielo + desglose flotante ===== */
+#hud-calor {
+  left: 12px;
+  top: 10px;
+  padding: 6px 12px 8px;
+  border-radius: 16px;
+  transition: background 1.2s, box-shadow 1.2s;
+}
+#rate-pop { position: absolute; left: 12px; top: 78px; width: 210px; }
+#ui.compact #rate-pop { top: 64px; }
+#ui.sky-day #hud-calor,
+#ui.sky-dusk #hud-calor {
+  background: rgba(14, 8, 4, 0.5);
+  box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
+}
+#ui.sky-day #hud-calor { background: rgba(14, 8, 4, 0.62); }
+#ui.sky-day #matches,
+#ui.sky-day #hint,
+#ui.sky-day .pit-tag,
+#ui.sky-day #forecast { background: rgba(14, 8, 4, 0.72); }
+#ui.sky-day #hint,
+#ui.sky-day #goal,
+#ui.sky-day #calor-rate { text-shadow: 0 1px 3px #000, 0 0 8px #000; }
+#ui.compact .pit-tag { gap: 3px; padding: 2px 8px; }
+#ui.compact .pit-tag .t-bar { width: 26px; }

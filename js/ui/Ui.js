@@ -736,6 +736,12 @@ export class Ui {
     this.nightGoal = ng;
     this.updateRate(v.rate, v.rateInfo);
     this.updateGoal();
+    // Luz del cielo (la escena pasa skyLabel): de día el HUD gana un fondo suave para no perderse sobre el cielo claro.
+    const sky = !v.skyLabel ? 'night' : v.skyLabel.includes('☀') ? 'day' : v.skyLabel.includes('🌇') ? 'dusk' : 'night';
+    if (sky !== this.sky) {
+      this.sky = sky;
+      for (const k of ['day', 'dusk', 'night']) this.root.classList.toggle(`sky-${k}`, k === sky);
+    }
 
     if (v.levelOn) this.updateLevel(v);
 

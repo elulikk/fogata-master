@@ -111,6 +111,11 @@ export class GameScene extends Phaser.Scene {
     // Al cargar una partida, vuelvo a mostrar lo que ya estaba desbloqueado.
     for (const id of Object.keys(data.unlocked)) this.applyUnlock(id, false);
     this.revealAshes();
+    // Tutorial: quien ya tiene partida no lo ve; el progreso del tutorial se guarda en la UI.
+    this.ui.tutorial('load', {
+      progress: data.totalCalor > 120 || (data.level | 0) > 1 || Object.keys(data.unlocked).length > 0,
+      size: Math.max(0, ...data.pits.map((q) => q.size | 0)),
+    });
     this.state.onStale = () => this.ui.forestEvent?.({
       icon: '⚠️',
       title: 'Otra pestaña guardó esta partida',
@@ -454,6 +459,7 @@ export class GameScene extends Phaser.Scene {
     Phaser.Physics.Matter.Matter.Sleeping.set(body, false);
     this.drag = { log, c, spawned, moved: 0, pid: p.id, aim: null, rotAcc: 0, twist: null, px: p.worldX, py: p.worldY, slot: null, slotPit: null };
     this.ui.setDragging(true);
+    this.ui.tutorial('grab');
     this.input.setDefaultCursor('grabbing');
   }
 
@@ -468,6 +474,7 @@ export class GameScene extends Phaser.Scene {
     if (log.state === 'ceniza') return;
     const s = log.sprite;
     const pitNow = this.fire.pitAt(s.x, s.y) || this.fire.pitAt(s.x, GROUND_Y - 60);
+    if (!noSnap && pitNow) this.ui.tutorial('drop');
     log.dragged = false;
     log.overChecked = false;
     log.releasedAt = this.time.now;
@@ -613,6 +620,7 @@ export class GameScene extends Phaser.Scene {
     for (const name of ['log:rotate', 'log:rest', 'log:overflow', 'log:returned', 'structure:formed', 'structure:lost', 'structure:collapse', 'pit:grow', 'log:snap', 'log:unsnap']) ev.off(name);
     ev.on('log:snap', (e) => {
       this.slotsCtl.onSlotSnap(e);
+      this.ui.tutorial('snap');
       this.firstTime('snap', e.slot.x, e.slot.y);
     });
     ev.on('log:unsnap', ({ log, pit, reason }) => {
@@ -628,6 +636,7 @@ export class GameScene extends Phaser.Scene {
       this.audio.rotateTick();
       if (this.drag) {
         this.drag.lastRotT = this.time.now;
+        this.ui.tutorial('rotate');
         this.firstTime('rotate', this.drag.log.x, this.drag.log.y - 20);
       }
     });
@@ -690,6 +699,7 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     });
     // La primera vez de cada estructura, un toast explica qué hace.
     ev.on('structure:formed', ({ type }) => {
+      this.ui.tutorial(`structure:${type}`);
       const info = {
         tipi: '🔺 Tipi: tira más aire y prende rápido, pero gasta un poco más de leña.',
         cabana: '🛖 Cabaña: dura más y entra más leña, aunque prende más lento.',
@@ -699,6 +709,7 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     ev.on('structure:lost', () => this.audio.structureLost());
     // Crecer de tamaño.
     ev.on('pit:grow', ({ pit, size }) => {
+      this.ui.tutorial('pit:grow', { size });
       if (this.sinceStart > 1) this.playGrow(pit, size);
     });
   }
@@ -760,6 +771,8 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
       return {
         i, screenX: p.x, screenY: GROUND_Y + 18, size: p.size, sizeName: SIZES[p.size]?.name,
         load: Math.min(cap * 1.5, (p.loadRatio || 0) * cap), cap, structure: p.structure, stackPenalty: p.stackPenalty || 0, slotsUsed: this.fire.slotted(p).length,
+        slotsTotal: p.slots?.length ? this.fire.slotted(p).length + p.slots.length : 0, // las libres solo existen mientras se arrastra
+        bonus: p.structure && STRUCTURE[p.structure.type] ? (STRUCTURE[p.structure.type].calor || 0) * p.structure.quality : 0,
         tipiLegs: this.fire.slotted(p).filter((o) => o.slot.kind === 'tipi').length,
         cabinPieces: this.fire.slotted(p).filter((o) => o.slot.kind !== 'tipi').length,
       };
@@ -791,7 +804,9 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     };
     this.fire.onIgnite = (log) => {
       // Fire ya hace el sonido, el pulso de luz y las chispas; acá solo la cámara.
-      if (!this.fx || this.sinceStart < 1) return;
+      if (this.sinceStart < 1) return;
+      this.ui.tutorial('ignite');
+      if (!this.fx) return;
       this.firstTime('ignite', log.x, log.y - 10);
       if (log.wood.thickness >= 24) this.cameras.main.shake(110, 0.0018);
     };
@@ -1475,6 +1490,7 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     this.ui.bind({
       forest: () => this.startTrip(),
       rotate: (dir) => this.rotateDrag(dir),
+      nextGoal: () => this.state.nextGoal({ rain: this.weather.rain }),
       settingSeen: (key) => this.seenOnce(key),
       items: (tab) => this.shopItems(tab),
       buy: (id) => this.buy(id),
