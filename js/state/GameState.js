@@ -5,16 +5,29 @@ import { freshNight, nightGoalNow, coldOf, NIGHT_PHASES } from '../data/nights.j
 import { META, KEEP_UNLOCKS, freshMeta, ashFromRun } from '../data/meta.js';
 import { levelProgress } from '../data/progress.js';
 import { ACHIEVEMENTS } from '../data/achievements.js';
-import { MAX_SIZE, STRUCTURE, BASE_CAPACITY, sizeOf } from '../data/sizes.js';
-import { WOODS } from '../data/woods.js';
+import { MAX_SIZE, STRUCTURE, capacityOf, sizeOf } from '../data/sizes.js';
+import { WOODS, woodKey } from '../data/woods.js';
 import { allItems } from '../data/shop.js';
 
 const KEY = 'fogata-master-save-v1';
-const VERSION = 3;
+const VERSION = 4;
 const CALOR_PER_INTENSITY = 2;
+// Hitos que anuncia el objetivo: los de arranque van antes que las compras, los tardíos después.
+const EARLY = [
+  [30, 'bosque', 'se abre el bosque, por más leña', '🌲'],
+  [60, 'chispazos', 'los chasquidos largan chispazos', '💫'],
+  [120, 'tienda', 'llega el Mercachifle', '🛒'],
+  [180, 'cartas', 'al subir de nivel elegís una carta', '🃏'],
+  [450, 'construir', 'podés construir: techo y fogata más grande', '🛠️'],
+];
+const LATE = [[1600, 'viento', 'empieza a soplar el viento', '💨'], [3000, 'noches', 'se abren las noches', '🌙'], [5500, 'tormentas', 'llegan las tormentas', '⛈️']];
 
-export const START_RES = { rama: 6, tronco: 2, seca: 0, humeda: 0, pina: 0, fosforo: 3 };
-export const WOOD_KEYS = ['rama', 'seca', 'humeda', 'tronco', 'pina'];
+export const START_RES = { pino_rama: 6, pino_lena: 2, pino_tronco: 2, pina: 0, fosforo: 3 };
+export const WOOD_KEYS = Object.keys(WOODS);
+// Con qué especie se paga en troncos: primero la más floja.
+const PAY_ORDER = ['humeda', 'pino', 'lenga', 'rauli', 'roble', 'quebracho'];
+// v3 → v4: las maderas viejas pasan a especie y tamaño.
+const LEGACY_WOOD = { rama: 'pino_rama', seca: 'pino_lena', tronco: 'pino_tronco', humeda: 'humeda_lena' };
 
 function prefersReducedMotion() {
   try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
@@ -28,7 +41,7 @@ function fresh() {
     totalCalor: 0,
     level: 1,
     unlocked: {},
-    seenWood: { rama: true, tronco: true },
+    seenWood: { pino: true },
     bought: {},
     cards: {},
     pits: [{ size: 0, roof: false }],
@@ -53,6 +66,18 @@ function deepMerge(base, saved) {
 
 // Lleva cualquier guardado (v1 o v2) a la forma actual.
 function migrate(saved) {
+  if ((saved.version || 1) < 4 && isObj(saved.res)) {
+    const res = { ...saved.res };
+    const seen = { pino: true };
+    if (saved.seenWood?.pina) seen.pina = true;
+    for (const key of Object.keys(START_RES)) if (WOODS[key] && !(key in res)) res[key] = 0;
+    for (const [old, key] of Object.entries(LEGACY_WOOD)) {
+      res[key] = (res[key] || 0) + (res[old] || 0);
+      delete res[old];
+    }
+    if (res.humeda_lena > 0) seen.humeda = true;
+    saved = { ...saved, res, seenWood: seen };
+  }
   const data = deepMerge(fresh(), saved);
   const s = data.settings;
   s.volume = Math.min(1, Math.max(0, Number(s.volume) || 0));
@@ -151,7 +176,7 @@ export class GameState {
   applyRunStart() {
     const u = (id) => this.data.meta.upgrades[id] || 0;
     this.data.res.fosforo += 4 * u('semilla');
-    this.data.res.tronco += 3 * u('semilla');
+    this.data.res.pino_tronco += 3 * u('semilla');
     const start = Math.min(3, u('hogar'));
     if (start) {
       this.data.pits[0].size = start;
@@ -205,16 +230,25 @@ export class GameState {
   }
 
   // Calor/s estimado de un pozo de tamaño `size` con carga `load` (fracción de su capacidad, 0..1,3),
-  // con la mezcla típica seca+tronco. Sirve para mostrar en la tienda qué rinde agrandar.
+  // con la mezcla típica leña+tronco. Sirve para mostrar en la tienda qué rinde agrandar.
   projectRate(size, load = 0.5) {
     const z = sizeOf(size);
     const m = this.mods;
     const area = (w) => w.length * w.thickness;
-    const dens = (WOODS.seca.heat + WOODS.tronco.heat) / (area(WOODS.seca) + area(WOODS.tronco));
-    const heat = Math.max(0, load) * BASE_CAPACITY * z.cap * dens * 0.85;
+    const dens = (WOODS.lenga_lena.heat + WOODS.lenga_tronco.heat) / (area(WOODS.lenga_lena) + area(WOODS.lenga_tronco));
+    const heat = Math.max(0, load) * capacityOf(size) * dens * 0.85;
     const inten = Math.min(1.4 * (1 + 0.3 * (z.hs - 1)), heat / 3.5);
     const f = Math.min(1, Math.max(0, load) / (m.fillThreshold || 0.4));
     return inten * CALOR_PER_INTENSITY * m.base * (1 + (z.mult - 1) * f) * m.calor * m.cosecha;
+  }
+
+  // Próximo hito de calor sin desbloquear: { icon, text, progress } o null. `list` = [calor, id, qué llega].
+  nextMilestone(list) {
+    const d = this.data;
+    for (const [at, id, what, icon] of list) {
+      if (!d.unlocked[id]) return { icon: icon || '⏳', text: `Juntá ${at} 🔥: ${what}.`, progress: Math.min(1, d.totalCalor / at) };
+    }
+    return null;
   }
 
   // Próximo paso importante: { icon, text, progress (0..1 | null) } o null.
@@ -223,6 +257,9 @@ export class GameState {
     const d = this.data;
     const have = d.res;
     const pits = d.pits;
+    if (!d.unlocked.calor) return null; // el tutorial manda al principio
+    const early = this.nextMilestone(EARLY);
+    if (early) return early;
     if ((ctx.rain || 0) > 0.3 && pits.some((p) => (p.size || 0) >= 3 && !p.roof)) {
       return {
         icon: '🌧️',
@@ -239,7 +276,7 @@ export class GameState {
       const lvl = d.bought[it.id] || 0;
       const p = this.price(it.cost(lvl));
       const needC = Math.max(0, p.calor - d.calor);
-      const needT = Math.max(0, p.tronco - (have.tronco || 0));
+      const needT = Math.max(0, p.tronco - this.troncos());
       const name = it.name;
       if (!needC && !needT) return { icon: it.icon, text: `${name}: ya podés comprarlo.`, progress: 1 };
       const parts = [];
@@ -247,14 +284,10 @@ export class GameState {
       if (needT) parts.push(`${needT} 🪵`);
       let hint = '';
       if (needT) hint = d.bought.hacha ? ', el bosque los trae' : d.unlocked.tienda ? ', el Mercachifle los vende' : ', el bosque los trae';
-      const frac = Math.min(p.calor ? d.calor / p.calor : 1, p.tronco ? (have.tronco || 0) / p.tronco : 1);
+      const frac = Math.min(p.calor ? d.calor / p.calor : 1, p.tronco ? this.troncos() / p.tronco : 1);
       return { icon: it.icon, text: `${name}: te faltan ${parts.join(' y ')}${hint}.`, progress: Math.max(0, Math.min(1, frac)) };
     }
-    const NEXT = [[1600, 'viento', 'sopla el viento'], [2500, 'noches', 'se abren las noches'], [4500, 'tormentas', 'llegan las tormentas']];
-    for (const [at, id, what] of NEXT) {
-      if (!d.unlocked[id]) return { icon: '⏳', text: `Seguí hasta ${at} 🔥: ${what}.`, progress: Math.min(1, d.totalCalor / at) };
-    }
-    return null;
+    return this.nextMilestone(LATE);
   }
 
   checkAchievements() {
@@ -268,7 +301,12 @@ export class GameState {
 
   add(key, n) {
     this.data.res[key] = Math.max(0, (this.data.res[key] || 0) + n);
-    if (n > 0 && WOOD_KEYS.includes(key)) this.data.seenWood[key] = true;
+    if (n > 0 && WOODS[key]) this.data.seenWood[WOODS[key].species] = true;
+  }
+
+  // Troncos de cualquier especie: son lo que se paga en la tienda.
+  troncos() {
+    return PAY_ORDER.reduce((sum, sp) => sum + (this.data.res[woodKey(sp, 'tronco')] || 0), 0);
   }
 
   gainCalor(n) {
@@ -289,13 +327,19 @@ export class GameState {
 
   canPay(cost) {
     const p = this.price(cost);
-    return this.data.calor >= p.calor && this.data.res.tronco >= p.tronco;
+    return this.data.calor >= p.calor && this.troncos() >= p.tronco;
   }
 
   pay(cost) {
     const p = this.price(cost);
     this.data.calor -= p.calor;
-    this.data.res.tronco -= p.tronco;
+    let left = p.tronco;
+    for (const sp of PAY_ORDER) {
+      const key = woodKey(sp, 'tronco');
+      const take = Math.min(left, this.data.res[key] || 0);
+      this.data.res[key] = (this.data.res[key] || 0) - take;
+      left -= take;
+    }
   }
 
   // --- Nivel, ritmo de calor, noches y ceniza ---
@@ -415,7 +459,7 @@ export class GameState {
       embers: 1 + 0.3 * c('brasas'),
       warm: Math.pow(0.8, c('yesca')),
       ignite: Math.pow(0.92, c('yesca')),
-      capacity: 1 + 0.2 * c('tiraje'),
+      draft: 1 + 0.1 * c('tiraje'),
       orbs: 0.85 * (1 + 0.3 * c('chispazos') + ach.orbs) * (1 + 0.15 * u('olfato')),
       magnet: (1 + 0.4 * c('iman')) * (1 + 0.15 * u('olfato')),
       loot: (1 + 0.25 * c('canasta') + ach.loot) * (1 + 0.5 * b('canasta')),

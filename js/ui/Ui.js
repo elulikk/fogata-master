@@ -33,16 +33,16 @@ const TABS = {
 
 const MIN_SCALE = 0.72;
 const WORLD_W = 1280; // tamaño del mundo de juego (para pasar coordenadas del mundo a la UI)
-const STRUCT_NAMES = { tipi: 'Tipi', cabana: 'Cabaña', monton: 'Montón' };
+const STRUCT_NAMES = { tipi: 'Armada' };
 
-// Efectos de un ítem: usa effects[] / effect; para "agrandar" deduce capacidad, aire y calor de sizes.js.
+// Efectos de un ítem: usa effects[] / effect; para "agrandar" deduce tipis, aire y calor de sizes.js.
 function effectsOf(i) {
   if (Array.isArray(i.effects) && i.effects.length) return i.effects;
   if (String(i.id).startsWith('agrandar_') && !i.maxed && SIZES[i.level + 1]) {
     const a = SIZES[i.level];
     const b = SIZES[i.level + 1];
     return [
-      { label: 'Capacidad', before: `×${a.cap}`, after: `×${b.cap}` },
+      { label: 'Tipis', before: `${a.tipis}`, after: `${b.tipis}` },
       { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
       { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
     ];
@@ -60,19 +60,18 @@ function sizeBarHtml(i) {
   return `<div class="sizebar"><span class="slots">${slots}</span><span class="sz">${cur.name}${next ? ` → <b>${next.name}</b>` : ' · máximo'}</span></div>`;
 }
 const CONFIRM_MS = 3000;
+const TOAST_PRIO = { bad: 2, unlock: 1 };
 
 // Tutorial contextual: cada paso avanza al lograr la acción (no por tiempo). Si un paso no se
 // cumple en `ttl` segundos se da por visto para no insistir. `minSize`: el paso espera ese tamaño de pozo.
 const TUT_KEY = 'fogata-ui-tut';
 const TUT_STEPS = [
-  { id: 'drag', text: 'Arrastrá una leña hasta el pozo', on: { grab: 'Llevala al pozo y soltala' }, done: 'drop', ttl: 45 },
-  { id: 'snap', text: 'Soltala sobre una silueta: encaja sola', done: 'snap', ttl: 45 },
-  { id: 'ignite', text: 'Tocá la leña para prenderla con un fósforo', done: 'ignite', guide: 'matches', ttl: 30 },
-  { id: 'tipi', text: 'Inclinala ±60° y soltala al costado: tipi', touch: 'Inclinala con ↺ ↻ y soltala al costado: tipi', on: { rotate: 'Ahora soltala al costado del pozo' }, done: 'structure:tipi', ttl: 60 },
-  { id: 'cabana', text: 'Dos bases y un puente encima: cabaña', done: 'structure:cabana', minSize: 3, ttl: 60 },
+  { id: 'drag', text: 'Arrastrá una leña hasta el fuego', on: { grab: 'Soltala sobre un lugar marcado' }, done: 'snap', ttl: 45 },
+  { id: 'tipi', text: 'Ramas al centro, leña al medio y troncos afuera', done: 'structure:tipi', ttl: 60 },
 ];
 // Avisos urgentes de la escena: ganan sobre el tutorial.
-const URGENT = /apag[óo]|fósforos|ahog|brasas|bosque|lleno/i;
+// Incluye "prender": si el fuego no prende solo, esa ayuda (que manda la escena) va primero.
+const URGENT = /apag[óo]|fósforo|prend|brasas|bosque|lleno/i;
 
 // Efecto "antes → después": si no hay valor previo ('—' o vacío), se muestra solo el "después".
 const sinAntes = (v) => v == null || ['', '—', '-'].includes(String(v).trim());
@@ -132,7 +131,7 @@ export class Ui {
     this.setupButtons();
     this.setupSettings();
     this.setupKeys();
-    this.setupRotate();
+    this.setupTouchMode();
     // Avisos en cola: salen de a uno cuando no hay ningún modal abierto.
     setInterval(() => { this.pump(); if (!this.modalOpen) this.tutTick(); }, 200);
     // Pantalla de título al abrir el juego (la pausa se aplica cuando la escena hace bind).
@@ -290,45 +289,16 @@ export class Ui {
     });
   }
 
-  // Dock táctil ↺ ↻: mientras se mantiene apretado llama rotate(dir); al soltar, rotate(0).
-  setupRotate() {
-    // El modo touch se detecta por el último puntero usado.
+  // El modo touch se detecta por el último puntero usado.
+  setupTouchMode() {
     window.addEventListener('pointerdown', (e) => {
       this.touchMode = e.pointerType === 'touch';
-      if (!this.touchMode) $('rot').classList.add('hidden');
     }, true);
-    let held = null;
-    const release = () => {
-      if (held == null) return;
-      held = null;
-      this.handlers.rotate?.(0);
-    };
-    for (const b of $('rot').querySelectorAll('button')) {
-      b.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        try { b.setPointerCapture?.(e.pointerId); } catch (err) { /* puntero ya liberado */ }
-        held = Number(b.dataset.dir);
-        this.handlers.rotate?.(held);
-        this.rotated();
-      });
-      for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, release);
-    }
-    // Q/E, rueda y clic derecho los maneja la escena (física); acá solo se cancela la pista.
   }
 
-  // La escena avisa cada vez que el jugador rota: la pista de rotación ya no hace falta.
-  rotated() {
-    if (this.rotHintUntil) {
-      this.rotHintUntil = 0;
-      this.setHint('');
-    }
-  }
-
-  // La escena avisa si hay una leña agarrada (muestra/oculta el dock en touch).
+  // La escena avisa si hay una leña agarrada.
   setDragging(on) {
     this.dragging = !!on;
-    $('rot').classList.toggle('hidden', !(this.dragging && this.touchMode));
   }
 
   // --- Tutorial contextual ---
@@ -348,8 +318,8 @@ export class Ui {
 
   get tutActive() { return this.tutOn && !!this.tutStep; }
 
-  // Eventos de la escena: 'load' {progress, size} (arranca o descarta), 'restart', 'grab', 'drop', 'snap',
-  // 'ignite', 'rotate', 'structure:tipi', 'structure:cabana', 'pit:grow' {size}.
+  // Eventos de la escena: 'load' {progress, size} (arranca o descarta), 'restart', 'grab', 'snap',
+  // 'ignite', 'structure:tipi', 'pit:grow' {size}.
   tutorial(event, data = {}) {
     if (event === 'restart') {
       this.tutDone = new Set();
@@ -367,7 +337,7 @@ export class Ui {
       if (cur && cur.on && cur.on[event] && event !== cur.done) {
         this.tutKind = event;
       } else {
-        // Un evento cumple su paso y todos los anteriores (soltar sobre una silueta ya incluye "soltar").
+        // Un evento cumple su paso y todos los anteriores.
         const i = TUT_STEPS.findIndex((s) => s.done === event);
         if (i >= 0) {
           TUT_STEPS.slice(0, i + 1).forEach((s) => this.tutDone.add(s.id));
@@ -387,7 +357,6 @@ export class Ui {
       this.tutT0 = performance.now();
       this.tutKind = '';
     }
-    this.guide(step && step.guide ? step.guide : null);
     this.setHint(this.lastHint);
   }
 
@@ -416,26 +385,6 @@ export class Ui {
     if (id) $(id)?.classList.add('guide');
   }
 
-  // Pista de rotación, una sola vez por jugador. Persistencia: handlers.settingSeen?.('rotateHint')
-  // debe devolver true si ya se mostró; si no lo marcó, lo marca y devuelve false.
-  // Sin handler cae a localStorage.
-  hintRotate(isTouch = this.touchMode) {
-    if (this.tutActive) return false; // el tutorial ya enseña a encajar y rotar
-    let seen;
-    if (this.handlers.settingSeen) seen = this.handlers.settingSeen('snapHint') === true;
-    else {
-      try {
-        seen = localStorage.getItem('fogata-ui-seen-snap') === '1';
-        if (!seen) localStorage.setItem('fogata-ui-seen-snap', '1');
-      } catch (err) { seen = false; }
-    }
-    if (seen) return false;
-    const text = isTouch ? 'Soltá sobre la silueta y encaja · ↺ ↻ para inclinar' : 'Soltá cerca de una silueta y encaja · Rueda/Q·E gira para el tipi';
-    this.rotHintUntil = performance.now() + (isTouch ? 6000 : 9000);
-    this.setHint(text, true);
-    return true;
-  }
-
   // Etiquetas livianas sobre cada pozo. list = [{ i, screenX, screenY, size, sizeName, load, cap,
   // structure: { type, quality } }] con x/y en coordenadas del MUNDO (1280×720); la UI las escala.
   pitInfo(list = []) {
@@ -447,7 +396,7 @@ export class Ui {
       if (!el) {
         el = document.createElement('div');
         el.className = 'pit-tag';
-        el.innerHTML = '<span class="t-name"></span><span class="t-bar"><b></b></span><span class="t-num"></span><span class="t-st"></span><span class="t-bonus"></span><span class="t-slots"></span><span class="t-warn"></span>';
+        el.innerHTML = '<span class="t-name"></span><span class="t-bar"><b></b></span><span class="t-num"></span><span class="t-st"></span><span class="t-bonus"></span>';
         box.appendChild(el);
         this.pitEls[idx] = el;
       }
@@ -460,16 +409,10 @@ export class Ui {
       const ratio = hasLoad ? p.load / p.cap : 0;
       set('.t-name', p.sizeName || (SIZES[p.size] && SIZES[p.size].name) || '');
       set('.t-num', hasLoad ? `${n1(p.load)}/${n1(p.cap)} 🪵` : '');
-      const legs = num(p.tipiLegs) ? p.tipiLegs : 0;
-      const pieces = num(p.cabinPieces) ? p.cabinPieces : 0;
-      let st = s && STRUCT_NAMES[s.type] && s.quality > 0.05 ? `${STRUCT_NAMES[s.type]} ${Math.round(s.quality * 100)}%` : '';
-      if (legs > 0 && legs < 4 && pieces === 0) st = `Tipi ${legs}/4`;
-      else if (s && s.type === 'cabana' && pieces > 0 && pieces < 5 && s.quality > 0.05) st = `Cabaña ${pieces}/5 ${Math.round(s.quality * 100)}%`;
+      const st = s && STRUCT_NAMES[s.type] && s.quality > 0.05 ? `${STRUCT_NAMES[s.type]} ${Math.round(s.quality * 100)}%` : '';
       set('.t-st', st);
       // bonus = fracción de calor extra de la estructura (0.22 → "+22%"); acepta también un texto.
       set('.t-bonus', typeof p.bonus === 'string' ? p.bonus : num(p.bonus) && p.bonus > 0.004 ? `+${Math.round(p.bonus * 100)}%` : '');
-      set('.t-slots', num(p.slotsTotal) && p.slotsTotal > 0 ? `${num(p.slotsUsed) ? p.slotsUsed : 0}/${p.slotsTotal} ranuras` : '');
-      set('.t-warn', num(p.stackPenalty) && p.stackPenalty > 0.05 ? 'ahogado: armá tipi/cabaña' : '');
       const bar = el.querySelector('.t-bar');
       bar.classList.toggle('hidden', !hasLoad);
       bar.firstChild.style.width = `${Math.round(Math.min(1, ratio) * 100)}%`;
@@ -600,8 +543,14 @@ export class Ui {
     // Sin repetidos: si el mismo texto ya espera o se ve, no se vuelve a apilar.
     if (this.toastQ.some((t) => t.text === text)) return;
     if ([...$('toasts').children].some((el) => el.textContent === text && !el.classList.contains('out'))) return;
-    this.toastQ.push({ text, kind, ms });
-    while (this.toastQ.length > 8) this.toastQ.shift();
+    // Prioridad: errores/urgencias (bad) > desbloqueos > info. Estable: a igual prioridad, por orden de llegada.
+    this.toastQ.push({ text, kind, ms, prio: TOAST_PRIO[kind] || 0 });
+    this.toastQ.sort((a, b) => b.prio - a.prio);
+    // Cola corta: si se llena, se descarta el más viejo de la prioridad más baja.
+    while (this.toastQ.length > 5) {
+      const low = this.toastQ[this.toastQ.length - 1].prio;
+      this.toastQ.splice(this.toastQ.findIndex((t) => t.prio === low), 1);
+    }
     this.pump();
   }
 
@@ -612,7 +561,18 @@ export class Ui {
     const open = this.modalOpen;
     this.root.classList.toggle('modal-open', open);
     if (open) {
-      // Con un modal abierto, el logro en pantalla se retira y vuelve a la cola: sale al cerrar el modal.
+      // Con un modal abierto, los toasts en pantalla se retiran y vuelven a la cola (salen al cerrarlo).
+      const back = [];
+      for (const el of [...$('toasts').children]) {
+        if (!el.classList.contains('out')) {
+          const kind = el.dataset.kind || 'info';
+          back.push({ text: el.textContent, kind, ms: 3000, prio: TOAST_PRIO[kind] || 0 });
+        }
+        el.remove();
+      }
+      this.toastQ.unshift(...back);
+      this.toastQ.sort((a, b) => b.prio - a.prio);
+      // El logro en pantalla se retira y vuelve a la cola: sale al cerrar el modal.
       if (this.curNotice && !achv.classList.contains('hidden')) {
         this.noticeQ.unshift(this.curNotice);
         this.curNotice = null;
@@ -624,9 +584,20 @@ export class Ui {
     }
     const box = $('toasts');
     if (this.noticeQ.length && achv.classList.contains('hidden')) this.showNotice(this.noticeQ.shift());
-    while (this.toastQ.length && [...box.children].filter((el) => !el.classList.contains('out')).length < 2) {
+    // Un solo canal: con una tarjeta de logro a la vista cabe 1 toast; si no, 2 (las urgencias entran igual).
+    const cap = achv.classList.contains('hidden') ? 2 : 1;
+    const live = () => [...box.children].filter((el) => !el.classList.contains('out'));
+    while (this.toastQ.length) {
+      if (live().length >= cap) {
+        // Una urgencia desplaza al toast más viejo en vez de esperar.
+        if (this.toastQ[0].prio < 2) break;
+        const old = live()[0];
+        old.classList.add('out');
+        setTimeout(() => old.remove(), 600);
+      }
       const { text, kind, ms } = this.toastQ.shift();
       const el = document.createElement('div');
+      el.dataset.kind = kind;
       el.className = `toast ${kind}`;
       el.textContent = text;
       box.appendChild(el);
@@ -639,6 +610,7 @@ export class Ui {
 
   // Logro: tarjeta vistosa arriba al centro. Respeta la cola de modales.
   achievement({ icon = '🏆', name = '', desc = '' } = {}) {
+    if (this.noticeQ.some((n) => n.name === name) || this.curNotice?.name === name) return;
     this.noticeQ.push({ type: 'achv', icon, name, desc, head: '¡Logro desbloqueado!' });
     this.pump();
   }
@@ -711,6 +683,8 @@ export class Ui {
     this.lastHint = force ? this.lastHint : text;
     if (!force && performance.now() < this.rotHintUntil) return;
     if (!force && this.tutStep && !(text && urgent)) text = this.tutText();
+    // Pulso sobre los fósforos cuando la pista habla de prender.
+    this.guide(/fósforo|prend/i.test(text || '') ? 'matches' : null);
     if (el.dataset.text === text) return;
     el.dataset.text = text;
     el.style.opacity = 0;

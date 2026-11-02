@@ -3,10 +3,8 @@
 // La geometría y la capacidad salen de data/sizes.js; la posición la reparte la escena (layoutPits).
 
 import { GROUND_Y } from '../gfx/textures.js';
-import { BASE_CAPACITY, MAX_SIZE, STRUCTURE, sizeOf } from '../data/sizes.js';
-
-// Categoría de colisión de las paredes del pozo: la leña agarrada (o rebotada) las atraviesa.
-export const WALL_CATEGORY = 0x0004;
+import { MAX_SIZE, capacityOf, sizeOf } from '../data/sizes.js';
+import { buildSlots, nearestFree } from '../utils/slots.js';
 
 // [estilo de piedra, textura de pared] por tamaño (0-1 anillo, 2-3 trabajada, 4-5 adobe, 6-7 ceremonial).
 const TIERS = [['stone', 'wall-stone'], ['stone', 'wall-stone'], ['hewn', 'wall-stone'], ['hewn', 'wall-stone'],
@@ -24,7 +22,6 @@ export class Pit {
     this.ash = 0;
     this.load = 0;
     this.loadRatio = 0;
-    this.oxygen = 1;
     this.air = 1;
     this.rain = 0;      // lluvia que le cae
     this.bellows = 0;
@@ -34,9 +31,9 @@ export class Pit {
     this.lightY = GROUND_Y - 60;
     this.burningLogs = 0;
 
-    // Estructura de la leña apilada (la detecta Fire): tipi, cabana, monton o ninguna.
+    // Fogata armada (la revisa Fire): tipi cuando hay leña en los tres anillos, si no ninguna.
     this.structure = { type: 'ninguna', quality: 0, stable: false, height: 0 };
-    this.slots = []; // ranuras magnéticas libres (solo se calculan mientras se arrastra leña sobre el pozo)
+    this.slotList = []; // lugares de la leña (ver utils/slots.js); se rehacen en build()
     this.structTarget = 0;
     this.structFormed = null;
     this.stableT = 0;
@@ -46,8 +43,6 @@ export class Pit {
     this.structureBonus = 0; // bonus de calor 0..STRUCTURE.calorCap (lo cobra GameState.rateBreakdown)
 
     this.stones = [];
-    this.bodies = [];
-    this.walls = [];
     this.ashGfx = scene.add.graphics().setDepth(10);
     this.bedGlow = scene.add.image(this.x, GROUND_Y - 4, 'glow')
       .setBlendMode(Phaser.BlendModes.ADD).setTint(0xff5a1a).setAlpha(0).setDepth(12);
@@ -69,7 +64,7 @@ export class Pit {
 
   get spec() { return sizeOf(this.size); }
   get half() { return this.spec.half; }
-  // Altura física Y dibujada de la pared: un pozo con paredes más altas contiene más leña apilada.
+  // Altura dibujada de la pared.
   get wallH() { return Math.round(this.spec.wallH * Pit.WALL_K); }
   get left() { return this.x - this.half; }
   get right() { return this.x + this.half; }
@@ -78,11 +73,8 @@ export class Pit {
   get airSize() { return this.spec.air; }
   get hs() { return this.spec.hs; }
 
-  get capacity() {
-    const s = this.structure;
-    const cabin = s.type === 'cabana' ? 1 + STRUCTURE.cabana.capacity * s.quality : 1;
-    return BASE_CAPACITY * this.spec.cap * (this.scene.state?.mods.capacity || 1) * cabin;
-  }
+  // Área de leña que lo llena: todos sus lugares ocupados con piezas enteras.
+  get capacity() { return capacityOf(this.size); }
 
   // Multiplicador de calor por tamaño, diluido si el pozo está casi vacío:
   // 1 + (mult-1)·clamp(carga / (umbral·capacidad), 0, 1); el umbral es 0,4 (Fogonero lo baja).
@@ -98,10 +90,8 @@ export class Pit {
   build() {
     const scene = this.scene;
     for (const s of this.stones) s.destroy();
-    for (const b of this.bodies) scene.matter.world.remove(b);
     this.stones = [];
-    this.bodies = [];
-    this.walls = [];
+    this.layoutSlots();
 
     // Tier visual: 0-1 anillo de piedras, 2-3 piedra trabajada, 4-5 adobe, 6-7 ceremonial.
     const [style, wallKey] = TIERS[this.size];
@@ -114,26 +104,14 @@ export class Pit {
     this.ghost = add(scene.add.image(this.x, GROUND_Y - (this.wallH * 2.2 + 40) / 2, 'pit-ghost')
       .setDisplaySize(this.half * 2, this.wallH * 2.2 + 40).setDepth(8).setAlpha(0).setTint(0xffc880));
 
-    // Piedras grandes a los costados (físicas: la leña rebota contra ellas).
+    // Piedras grandes a los costados.
     const r = Math.min(26, 20 + this.size);
     for (const side of [-1, 1]) {
       const sx = this.x + side * (this.half + r - 6);
-      const body = scene.matter.add.circle(sx, GROUND_Y - r + 6, r, { isStatic: true, label: 'stone', friction: 0.9 });
-      this.bodies.push(body);
       add(scene.add.image(sx, GROUND_Y - r + 8, big).setDisplaySize(r * 2.8, r * 2).setDepth(22).setFlipX(side > 0));
       add(scene.add.image(sx + side * r * 1.4, GROUND_Y - 6, style === 'stone' ? 'stone2' : `${style}1`).setDepth(22));
     }
-    // Paredes bajas del pozo: contienen la leña. Atravesables mientras se agarra (WALL_CATEGORY).
     const wh = this.wallH;
-    for (const side of [-1, 1]) {
-      const wx = this.x + side * (this.half - 5);
-      const wall = scene.matter.add.rectangle(wx, GROUND_Y - wh / 2, 14, wh, {
-        isStatic: true, label: 'wall-pit', friction: 0.9,
-        collisionFilter: { category: WALL_CATEGORY, mask: 0xFFFFFFFF, group: 0 },
-      });
-      this.bodies.push(wall);
-      this.walls.push(wall);
-    }
     // Dibujo de las paredes (piedra / adobe / ritual según tier) y marcas de carga sobre ellas.
     // Móvil horizontal: paredes y postes más discretos (translúcidos y bajos) para no tapar el mundo.
     const compact = !!window.matchMedia?.('(max-height: 520px), (max-width: 760px)').matches;
@@ -162,6 +140,22 @@ export class Pit {
     this.drawAsh();
     this.drawRoof();
     this.makeFlames();
+  }
+
+  // Rehace los lugares para la posición y el tamaño actuales; la leña que ya estaba sigue en su anillo.
+  layoutSlots() {
+    const logs = this.slotList.filter((s) => s.log).map((s) => s.log);
+    this.slotList = buildSlots(this.x, this.half, this.spec.tipis, GROUND_Y);
+    for (const l of logs) {
+      const old = l.slot;
+      const slot = this.slotList.find((q) => !q.log && q.tier === old.tier && q.tipi === old.tipi && q.side === old.side)
+        || nearestFree(this.slotList, old.tier, old.x, old.y);
+      slot.log = l;
+      l.slot = slot;
+      l.moveAnim = null;
+      l.seat();
+      l.syncGlow();
+    }
   }
 
   // Cuerpo de la llama: sprites con color pintado y mezcla NORMAL (no se queman a blanco al sumarse);
@@ -197,20 +191,14 @@ export class Pit {
 
   setSize(size) {
     this.size = Math.min(MAX_SIZE, Math.max(0, size | 0));
-    this.scene.fire?.releaseSlots(this); // la geometría cambia: la leña encajada vuelve a la física
     this.build();
     this.scene.events.emit('pit:grow', { pit: this, size: this.size });
   }
 
-  // Mueve el pozo (layoutPits): arrastra con él la leña que tiene adentro.
+  // Mueve el pozo (layoutPits): la leña se va con él, porque build() rehace sus lugares.
   setX(x) {
     const dx = x - this.x;
     if (Math.abs(dx) < 0.5) return;
-    for (const l of this.scene.fire.logs) {
-      if (l.pit !== this || !l.sprite.body) continue;
-      l.sprite.setPosition(l.x + dx, l.y);
-      l.syncGlow();
-    }
     this.x = x;
     this.lightX += dx;
     this.bedGlow.setX(x);
@@ -258,7 +246,6 @@ export class Pit {
   destroy() {
     this.scene.events.off('postupdate', this.tick, this);
     for (const s of this.stones) s.destroy();
-    for (const b of this.bodies) this.scene.matter.world.remove(b);
     this.ashGfx.destroy();
     this.bedGlow.destroy();
     this.light.destroy();

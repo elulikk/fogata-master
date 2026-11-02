@@ -18,10 +18,10 @@ const flag = (label) => () => ({ label, before: '—', after: 'activo' });
 
 export const CARDS = [
   { id: 'calor', rarity: 'comun', icon: '🔥', name: 'Brasas generosas', desc: '+15% de calor de todas las fogatas.', max: 8, effect: lin('Calor', 15) },
-  { id: 'duracion', rarity: 'comun', icon: '🪵', name: 'Leña de quebracho', desc: 'La leña dura 15% más.', max: 5, effect: lin('Duración de la leña', 15) },
+  { id: 'duracion', rarity: 'comun', icon: '🪵', name: 'Leña bien curada', desc: 'La leña dura 15% más.', max: 5, effect: lin('Duración de la leña', 15) },
   { id: 'brasas', rarity: 'comun', icon: '🟠', name: 'Brasas tercas', desc: 'Las brasas duran 30% más.', max: 5, effect: lin('Duración de brasas', 30) },
   { id: 'yesca', rarity: 'comun', icon: '✨', name: 'Yesca', desc: 'La leña prende más rápido y con menos calor.', max: 4, effect: mul('Calor que pide para prender', 0.8) },
-  { id: 'tiraje', rarity: 'rara', icon: '💨', name: 'Buen tiraje', desc: 'Las fogatas aguantan 20% más leña sin ahogarse.', max: 5, effect: lin('Capacidad del pozo', 20) },
+  { id: 'tiraje', rarity: 'rara', icon: '💨', name: 'Buen tiraje', desc: 'Las fogatas tiran mejor: 10% más de aire y más llama.', max: 5, effect: lin('Aire', 10) },
   { id: 'chispazos', rarity: 'comun', icon: '💫', name: 'Chispas de la suerte', desc: 'Salen 30% más chispazos.', max: 5, requires: (s) => s.unlocked.chispazos, effect: lin('Chispazos', 30) },
   { id: 'iman', rarity: 'comun', icon: '🧲', name: 'Manos rápidas', desc: 'Juntás chispazos desde más lejos.', max: 3, requires: (s) => s.unlocked.chispazos, effect: lin('Alcance', 40) },
   { id: 'canasta', rarity: 'comun', icon: '🧺', name: 'Ojo de leñador', desc: 'Traés 25% más leña del bosque.', max: 5, requires: (s) => s.unlocked.bosque, effect: lin('Leña del bosque', 25) },
@@ -57,7 +57,7 @@ export const CARDS = [
     effect: mul('Costo de agrandar', 0.9),
   },
   {
-    id: 'chimenea', rarity: 'rara', icon: '🏠', name: 'Chimenea', desc: 'Las estructuras (tipi, cabaña) rinden 50% más.', max: 3, requires: (s) => s.unlocked.construir,
+    id: 'chimenea', rarity: 'rara', icon: '🏠', name: 'Chimenea', desc: 'Las fogatas armadas (leña en los tres anillos) rinden 50% más.', max: 3, requires: (s) => s.unlocked.construir,
     effect: lin('Bonus de estructura', 50),
   },
   {
@@ -78,7 +78,7 @@ export const CARDS = [
   },
   {
     id: 'regalo', rarity: 'comun', icon: '🎁', name: 'Leñador amigo', desc: '+3 troncos y +4 ramas ahora.', max: 3, effect: flag('+3 troncos, +4 ramas'),
-    apply: (g) => { g.state.add('tronco', 3); g.state.add('rama', 4); },
+    apply: (g) => { g.state.add('pino_tronco', 3); g.state.add('pino_rama', 4); },
   },
 ];
 

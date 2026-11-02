@@ -1,6 +1,7 @@
 // Eventos del bosque: a veces un viaje (el tuyo, no el del ayudante) trae algo más.
 // Son datos puros; GameScene los aplica en el viaje:
-//   loot       { recurso: [mín, máx] } se suma a lo que traés (se redondea con `mods.loot`).
+//   loot       { recurso o tamaño: [mín, máx] } se suma a lo que traés (se redondea con `mods.loot`; los tamaños
+//              rama, lena y tronco se reparten entre las especies que ya da el bosque).
 //   fosforos   [mín, máx] fósforos extra.
 //   calorSecs  regalo de calor: tantos segundos de la producción actual.
 //   lootScale  multiplica lo que traés ese viaje (menos de 1 es un mal evento).
@@ -14,8 +15,8 @@ export const FOREST_EVENTS = [
   },
   {
     id: 'claro', icon: '☀️', name: 'Claro soleado', chance: 0.08, bad: false,
-    text: 'Un claro seco al sol: leña seca y sin una gota de humedad.',
-    loot: { seca: [3, 4] }, dry: true,
+    text: 'Un claro seco al sol: leña sin una gota de humedad.',
+    loot: { lena: [3, 4] }, dry: true,
   },
   {
     id: 'bau', icon: '🧰', name: 'Baúl viejo', chance: 0.04, bad: false,

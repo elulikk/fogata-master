@@ -1221,39 +1221,6 @@ kbd {
   opacity: 0.95;
 }
 
-#rot {
-  position: absolute;
-  left: 18px;
-  bottom: 18px;
-  display: flex;
-  gap: 12px;
-  z-index: 4;
-}
-
-#rot button {
-  width: 64px;
-  height: 64px;
-  min-width: 44px;
-  min-height: 44px;
-  border-radius: 50%;
-  font-size: 30px;
-  line-height: 1;
-  background: rgba(40, 24, 12, 0.88);
-  border: 2px solid rgba(255, 190, 110, 0.7);
-  box-shadow: 0 0 16px rgba(255, 150, 60, 0.35);
-  touch-action: none;
-  user-select: none;
-}
-
-#rot button:active {
-  background: rgba(200, 98, 31, 0.9);
-}
-
-#ui.small #rot button {
-  width: calc(56px / var(--k));
-  height: calc(56px / var(--k));
-}
-
 .item .sizebar {
   display: flex;
   align-items: center;
@@ -1576,3 +1543,27 @@ kbd {
 #ui.sky-day #calor-rate { text-shadow: 0 1px 3px #000, 0 0 8px #000; }
 #ui.compact .pit-tag { gap: 3px; padding: 2px 8px; }
 #ui.compact .pit-tag .t-bar { width: 26px; }
+
+/* ===== C5 iteración 2: un solo canal de avisos, móvil horizontal, costo de efectos ===== */
+
+/* Con un modal abierto la zona de avisos desaparece al instante (sin fundido que se mezcle con el modal). */
+#ui.modal-open #topc { opacity: 0; visibility: hidden; transition: none; }
+
+/* Móvil horizontal: HUD más grande y botones separados del borde inferior */
+#ui.compact #hud-calor .calor { font-size: 40px; }
+#ui.compact #calor-rate { font-size: 22px; }
+#ui.compact .lvl-label { font-size: 16px; }
+#ui.compact #level { width: 250px; }
+#ui.compact #level .bar { height: 12px; }
+#ui.compact #goal { width: 250px; font-size: 15px; }
+#ui.compact #rate-pop { top: 84px; font-size: 16px; }
+#ui.compact #actions { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); right: calc(12px + env(safe-area-inset-right, 0px)); }
+#ui.compact #hud-calor { left: calc(12px + env(safe-area-inset-left, 0px)); }
+
+/* backdrop-filter sobre el canvas WebGL es caro en celulares: ahí el menú usa solo un fondo más oscuro. */
+#ui.small #mm,
+#ui.small #mm.is-title {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(8, 5, 3, 0.82);
+}

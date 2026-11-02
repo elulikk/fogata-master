@@ -44,12 +44,12 @@ export const MILESTONES = [
   },
   {
     id: 'noches',
-    when: (s) => s.totalCalor >= 2500,
-    toast: 'El día se acorta… vienen las noches. Aguantá el frío hasta el amanecer.',
+    when: (s) => s.totalCalor >= 3000,
+    toast: 'El día se acorta… la primera noche cae en unos 4 minutos. Aguantá el frío hasta el amanecer.',
   },
   {
     id: 'tormentas',
-    when: (s) => s.totalCalor >= 4500,
+    when: (s) => s.totalCalor >= 5500,
     toast: 'Llegan las tormentas. Más vale tener todo techado.',
   },
 ];

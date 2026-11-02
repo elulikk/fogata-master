@@ -13,8 +13,8 @@
   const S = G.scene.scenes.find((s) => s.fire);
   const state = window.fogata.state;
   state.save = () => false;
-  const log = { milestones: {}, buys: [], rate60: [], nights: [], levels: [] };
-  const MARKS = [500, 1500, 2500, 4500, 10000];
+  const log = { milestones: {}, buys: [], rate60: [], nights: [], levels: [], goals: [] };
+  const MARKS = [500, 1500, 2500, 3000, 4500, 10000];
   const dropEvery = 3;
   let vt = performance.now();
   let t = 0;
@@ -82,6 +82,8 @@
       const good = state.res.seca + Math.max(0, state.res.tronco - 8);
       if ((state.res.rama <= 1 || good === 0) && !S.trip && state.unlocked.bosque) S.startTrip();
       buyStuff();
+      const g = state.nextGoal({ rain: 0 });
+      if (g && g.text !== bot._lastGoal) { bot._lastGoal = g.text; log.goals.push(Math.round(t) + ': ' + g.text); }
       for (const m of MARKS) if (!(m in log.milestones) && state.data.totalCalor >= m) log.milestones[m] = Math.round(t);
     }
     if (t >= nextRate) { nextRate += 60; log.rate60.push(+S.rate.toFixed(1)); }
@@ -98,7 +100,7 @@
   bot.report = () => ({
     t: Math.round(t), calor: Math.round(state.data.totalCalor), rate: +S.rate.toFixed(1), level: state.data.level,
     pits: state.data.pits.map((p) => p.size), res: { ...state.res }, night: { n: state.data.night.n, phase: state.data.night.phase },
-    milestones: log.milestones, buys: log.buys, rate60: log.rate60, nights: log.nights,
+    milestones: log.milestones, goals: log.goals, buys: log.buys, rate60: log.rate60, nights: log.nights,
   });
   window.botRitmo = bot;
 })();

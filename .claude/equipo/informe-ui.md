@@ -283,3 +283,14 @@ Archivos: `Ui.js`, `MainMenu.js`, `index.html`, `style.css`. Probado a mano en 1
 **Desglose del calor/s**: ahora flota (absoluto), ya no empuja la barra de nivel.
 
 **No verificado**: táctil real (dock, segundo dedo, hint táctil), rotar con rueda/Q·E durante el arrastre real y soltar un tipi real (probé 'rotate' y el tipi por eventos, no con física), noche con la UI nueva, etiqueta de 2 pozos en compact.
+
+## C5 iteración 2
+
+Solo `Ui.js`, `MainMenu.js`, `style.css`. `node --check` OK. Probado en 127.0.0.1:8080 por API (partida respaldada y restaurada).
+
+- **J5/H2 avisos**: un solo canal con prioridad (bad > unlock > info), máximo 2 toasts visibles (1 si hay tarjeta de logro), cola de 5 sin duplicados, urgencias desplazan al más viejo. Con modal abierto los toasts visibles se retiran y vuelven a la cola, y `#topc` se oculta sin fundido. Logros duplicados no se encolan. Verificado: 5 avisos → 2 visibles; con modal 0 visibles; al cerrar vuelven en orden.
+- **J6 tutorial**: se quitó el paso "prender" de la cadena (la ignición natural ya no cumple nada); "soltar libre" solo cumple "arrastrar", "encajar" solo con `snap` real. "Prender" pasa a ayuda contextual: cualquier pista con "prender/fósforo" gana sobre el tutorial y resalta los fósforos. **Línea pendiente en GameScene (`currentHint`)**: si hay una leña cruda apoyada en un pozo sin llama hace > 8 s y nunca se prendió a mano, devolver `'Tocá la leña del pozo para prenderla con un fósforo.'`.
+- **Móvil 812×375**: calor, ritmo, nivel y objetivo más grandes en `.compact`; botones inferiores con margen y `safe-area`. No re-capturado en pantalla.
+- **Título**: "Continuar" muestra el calor actual (el del HUD), no el acumulado.
+- **Rendimiento**: `backdrop-filter` solo existe en el menú; se desactiva en `.small`/táctil. Sin otros efectos caros.
+- **No verificado**: captura 812×375 tras los cambios, táctil real, la pista de prender (depende de la línea pendiente).

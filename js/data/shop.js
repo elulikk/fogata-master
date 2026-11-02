@@ -2,55 +2,69 @@
 // Cada ítem aparece recién cuando se cumple `requires`, así el juego se abre de a poco.
 // cost(nivel) devuelve { calor, tronco? }. `max` es cuántas veces se puede comprar.
 
-import { SIZES, SIZE_AT, MAX_SIZE, BASE_CAPACITY, canFit } from './sizes.js';
+import { SIZES, SIZE_AT, MAX_SIZE, canFit } from './sizes.js';
+import { SPECIES, woodKey } from './woods.js';
 
 const grow = (base, k, n) => Math.round(base * Math.pow(k, n));
 // Consumibles: el precio sube con las compras pero se frena en ×3 (no son una trampa).
 const soft = (base, k, n) => Math.round(base * Math.min(3, Math.pow(k, n)));
 
-// Un tronco ocupa 175×42 de área.
-const TRONCO_AREA = 7350;
 const sizeInfo = (n) => {
   const z = SIZES[Math.min(MAX_SIZE, n)];
-  return `${((BASE_CAPACITY * z.cap) / TRONCO_AREA).toFixed(1)} troncos · aire ×${z.air.toFixed(2)} · calor ×${z.mult}`;
+  return `${z.tipis} ${z.tipis > 1 ? 'tipis' : 'tipi'} · aire ×${z.air.toFixed(2)} · calor ×${z.mult}`;
 };
 
-// Qué estructura permite armar cada tamaño (ranuras magnéticas de física).
-const STRUCT_UNLOCK = { 3: 'Hogar: ya entra una cabaña de ramas.', 5: 'Pira: cabaña de troncos.' };
+// Qué tamaños suman lugares para la leña.
+const STRUCT_UNLOCK = { 3: 'Hogar: entra un segundo tipi, con seis lugares más.', 6: 'Faro: entra un tercer tipi.' };
+
+// Atados de cada especie: aparecen cuando el bosque ya la da.
+const PACK_PRICE = { lenga: 45, rauli: 90, roble: 180, quebracho: 360 };
+const packs = () => Object.entries(PACK_PRICE).map(([sp, price]) => {
+  const name = SPECIES[sp].name;
+  return {
+    id: `pack_${sp}`, tab: 'tienda', icon: '🪵', name: `Atado de ${name.toLowerCase()}`,
+    effect: () => ({ label: name, before: '—', after: '+2 leñas, +1 tronco' }),
+    desc: `+2 leñas y +1 tronco. ${SPECIES[sp].desc}`,
+    requires: (s) => s.unlocked.tienda && s.totalCalor >= SPECIES[sp].from,
+    cost: (n) => ({ calor: soft(price, 1.1, n) }),
+    apply: (g) => { g.state.add(woodKey(sp, 'lena'), 2); g.state.add(woodKey(sp, 'tronco'), 1); },
+  };
+});
 
 export const SHOP = [
   {
     id: 'fosforos', tab: 'tienda', icon: '📦', name: 'Caja de fósforos',
-    effect: () => ({ label: 'Fósforos', before: '—', after: '+5' }),
-    desc: '+5 fósforos.',
-    requires: (s) => s.unlocked.tienda && (s.res.fosforo || 0) < 6, // si te sobran, no se ofrece
+    effect: () => ({ label: 'Fósforos', before: '—', after: '+4' }),
+    desc: '+4 fósforos. Si te sobran, el mercachifle no los ofrece.',
+    requires: (s) => s.unlocked.tienda && (s.res.fosforo || 0) < 5, // si te sobran, no se ofrece
     cost: (n) => ({ calor: soft(15, 1.12, n) }),
-    apply: (g) => g.state.add('fosforo', 5),
+    apply: (g) => g.state.add('fosforo', 4),
   },
   {
     id: 'ramas', tab: 'tienda', icon: '🌿', name: 'Atado de ramas',
     effect: () => ({ label: 'Ramas', before: '—', after: '+8' }),
-    desc: '+8 ramas.',
+    desc: '+8 ramas de pino: prenden enseguida.',
     requires: (s) => s.unlocked.tienda,
     cost: (n) => ({ calor: soft(10, 1.1, n) }),
-    apply: (g) => g.state.add('rama', 8),
+    apply: (g) => g.state.add('pino_rama', 8),
   },
   {
-    id: 'seca', tab: 'tienda', icon: '🪵', name: 'Madera seca',
-    effect: () => ({ label: 'Madera seca', before: '—', after: '+3' }),
-    desc: '+3 de madera seca: arde fuerte y prende troncos.',
+    id: 'seca', tab: 'tienda', icon: '🪵', name: 'Leña de pino',
+    effect: () => ({ label: 'Leña de pino', before: '—', after: '+3' }),
+    desc: '+3 leñas de pino: arden fuerte y prenden troncos.',
     requires: (s) => s.unlocked.tienda && s.totalCalor >= 140,
     cost: (n) => ({ calor: soft(28, 1.1, n) }),
-    apply: (g) => g.state.add('seca', 3),
+    apply: (g) => g.state.add('pino_lena', 3),
   },
   {
     id: 'troncos', tab: 'tienda', icon: '🪵', name: 'Troncos',
     effect: () => ({ label: 'Troncos', before: '—', after: '+2' }),
-    desc: '+2 troncos.',
+    desc: '+2 troncos de pino.',
     requires: (s) => s.unlocked.tienda && s.totalCalor >= 200,
     cost: (n) => ({ calor: soft(35, 1.1, n) }),
-    apply: (g) => g.state.add('tronco', 2),
+    apply: (g) => g.state.add('pino_tronco', 2),
   },
+  ...packs(),
   {
     id: 'fuelle', tab: 'tienda', icon: '🪗', name: 'Fuelle',
     effect: () => ({ label: 'Fuelle', before: '—', after: 'activo' }),
@@ -96,7 +110,7 @@ export const SHOP = [
   {
     id: 'lenera', tab: 'construir', icon: '🏚️', name: 'Leñera techada',
     effect: () => ({ label: 'Pila de leña', before: 'se moja', after: 'seca' }),
-    desc: 'La lluvia ya no moja tu pila de leña.',
+    desc: 'La lluvia ya no moja tu pila de leña (las ramas y la leña que se mojan se vuelven madera húmeda).',
     max: 1,
     requires: (s) => s.unlocked.construir && s.totalCalor >= 450,
     cost: () => ({ calor: 380, tronco: 4 }),
@@ -104,7 +118,7 @@ export const SHOP = [
   {
     id: 'secadero', tab: 'construir', icon: '🧱', name: 'Secadero',
     effect: (n) => ({ label: 'Secado de húmeda', before: n ? `1 cada ${Math.round(14 / n)} s` : '—', after: `1 cada ${Math.round(14 / (n + 1))} s` }),
-    desc: 'Convierte madera húmeda en seca de a poco. Cada nivel lo hace más rápido.',
+    desc: 'Seca de a poco la madera húmeda y la vuelve madera de pino. Cada nivel va más rápido.',
     max: 3,
     requires: (s) => s.unlocked.construir && s.totalCalor >= 800,
     cost: (n) => ({ calor: grow(600, 1.7, n), tronco: 3 }),
@@ -136,7 +150,7 @@ export function pitItems(s) {
     items.push({
       id: `agrandar_${i}`, tab: 'construir', icon: '🪨',
       name: size >= MAX_SIZE ? `Tamaño máximo${label}` : `Agrandar a ${SIZES[size + 1].name}${label}`,
-      desc: 'Más capacidad, más aire y más calor, pero un pozo grande pide más leña para rendir y ocupa terreno.' + (STRUCT_UNLOCK[size + 1] ? ' ' + STRUCT_UNLOCK[size + 1] : ''),
+      desc: 'Más aire y más calor, pero un pozo grande pide más leña para rendir y ocupa terreno.' + (STRUCT_UNLOCK[size + 1] ? ' ' + STRUCT_UNLOCK[size + 1] : ''),
       max: MAX_SIZE, pit: i,
       effect: (n) => ({ label: `${SIZES[Math.min(n, MAX_SIZE)].name} → ${SIZES[Math.min(n + 1, MAX_SIZE)].name}`, before: sizeInfo(n), after: sizeInfo(n + 1) }),
       requires: () => s.unlocked.construir && s.totalCalor >= Math.max(520, SIZE_AT[Math.min(MAX_SIZE, size + 1)] * 0.55),

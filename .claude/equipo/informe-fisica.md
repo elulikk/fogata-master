@@ -269,3 +269,12 @@ Archivos: GameScene.js, nuevo `js/scenes/SlotController.js`, Fire.js. Arnés reu
 6. **H8**: las leñas iniciales no ocupan la ranura de base; la silueta rellena se perdía dentro de la llama. Ahora cada silueta tiene un **contorno claro** (`drawOutlines`) y en el primer arrastre se ve el rectángulo de la base junto al X del tipi (comprobado con captura). No moví las leñas iniciales.
 
 No pude verificar: táctil real (alcance de 28 px y que el resalte no aparezca), el colapso con un incendio natural (en la prueba forcé la ceniza de una base; quemándose todas a la vez casi no hay cascada), ni cómo se ve el resalte en vivo (el panel oculto no repinta; usé `toDataURL`). Partida: localStorage estaba vacío; lo dejé vacío, `state.locked = true`, pestaña cerrada. `node --check` OK.
+
+## C5 iteración 2 (física)
+Hecho (solo `node --check`; sin prueba en el navegador, el panel dejó de abrir 127.0.0.1:8080):
+- **J1**: una leña encajada ya no se agarra al apretar; queda `pending` y solo se desencaja si el puntero se mueve >8 px (14 en touch). Un toque corto llama a `strikeMatch` (prende si está cruda; si arde, no hace nada).
+- **Derrumbe natural**: `Fire.crumbling(r)`: un apoyo en brasas con ≤12 % de combustible (`CRUMBLE_FUEL`) deja de sostener; lo que se apoya en él tiembla y cae en cascada con `structure:collapse`. Falta medir con `medir-estructuras.js` que el calor siga ≥ +15 % (si cae, bajar `CRUMBLE_FUEL`).
+- **J4**: estructura detectada solo por física exige calidad ≥ 0,5 (`STRUCT_MIN_PHYS`); debajo es montón.
+- **J9**: junto a cada base encajada se ofrece el hueco de al lado con la separación para el puente, sea cual sea el largo; si no hay ninguna ranura sale "No hay lugar para esta leña: probá con otra más corta".
+- **J8**: `pitInfoList` ya manda `cabinPieces`; `Ui.js` solo muestra "Cabaña n/5" si `quality > 0.05`, y con ranuras a medias la calidad es 0: lo tiene que ajustar UI.
+- **H8**: sin cambios nuevos (los contornos de la iteración 1 siguen); falta ver una captura del primer arrastre.

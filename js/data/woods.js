@@ -1,5 +1,5 @@
-// Definición de los tipos de madera.
-// Cada madera define cómo prende, cuánto dura, cuánto calor da y cómo se ve.
+// Definición de las maderas: cada pieza es una especie (pino, roble...) en un tamaño (rama, leña, tronco).
+// Las claves son `especie_tamaño` (ej. roble_tronco); la tabla WOODS se arma sola cruzando las dos listas.
 //
 // Unidades:
 //   ignite  temperatura (0..1+) a la que prende.
@@ -7,59 +7,112 @@
 //   fuel    "segundos de llama plena" que tiene adentro.
 //   heat    calor que irradia cuando arde a pleno.
 
-export const WOODS = {
+// Tamaños, de menor a mayor. `tier` es el anillo del tipi donde va (0 = centro, ver utils/slots.js).
+export const CUTS = {
   rama: {
-    name: 'Ramas',
-    desc: 'Prenden con un fósforo. Arden rápido y duran poco.',
-    shape: 'stick', length: 100, thickness: 15, density: 0.0012,
-    bark: '#6e5641', barkLight: '#8f735a', barkDark: '#3b2c20', inner: '#c9a77a',
-    ignite: 0.22, warm: 0.6, moisture: 0,
-    fuel: 10, heat: 0.9,
-    flame: 'S', flameRate: 1.3, smoke: 0.35, crackle: 5, sparks: 1.3,
-    weight: 'light',
+    tier: 0, name: 'Rama', plural: 'ramas', shape: 'stick', length: 84, thickness: 13,
+    ignite: 0.22, warm: 0.6, fuel: 10, heat: 0.9,
+    flame: 'S', flameRate: 1.3, smoke: 0.35, crackle: 5, sparks: 1.3, weight: 'light',
   },
-  seca: {
-    name: 'Madera seca',
-    desc: 'Arde limpia y fuerte. Ideal para encender troncos.',
-    shape: 'log', length: 130, thickness: 25, density: 0.001,
-    bark: '#9a7a52', barkLight: '#bf9c6c', barkDark: '#5c452d', inner: '#e6c896',
-    ignite: 0.38, warm: 1.4, moisture: 0,
-    fuel: 30, heat: 1.9,
-    flame: 'M', flameRate: 1.4, smoke: 0.15, crackle: 3.5, sparks: 1,
-    weight: 'medium',
-  },
-  humeda: {
-    name: 'Madera húmeda',
-    desc: 'Primero se seca: humea y chilla. Después arde como cualquiera.',
-    shape: 'log', length: 130, thickness: 27, density: 0.0018,
-    bark: '#4a4034', barkLight: '#5f5446', barkDark: '#241e19', inner: '#9c8a6c',
-    wet: true,
-    ignite: 0.5, warm: 2.5, moisture: 1, dryTime: 9,
-    fuel: 28, heat: 0.8,
-    flame: 'M', flameRate: 1, smoke: 1.6, crackle: 3, sparks: 0.8,
-    weight: 'medium',
+  lena: {
+    tier: 1, name: 'Leña', plural: 'leñas', shape: 'log', length: 116, thickness: 22,
+    ignite: 0.38, warm: 1.4, fuel: 30, heat: 1.9,
+    flame: 'M', flameRate: 1.4, smoke: 0.3, crackle: 3.5, sparks: 1, weight: 'medium',
   },
   tronco: {
-    name: 'Troncos',
-    desc: 'Tardan en prender, pero arden muchísimo tiempo.',
-    shape: 'log', length: 175, thickness: 42, density: 0.0016,
-    bark: '#5a3f2b', barkLight: '#77553a', barkDark: '#2c1d13', inner: '#d1a978',
-    ignite: 0.75, warm: 6, moisture: 0,
-    fuel: 75, heat: 2.4,
-    flame: 'L', flameRate: 1, smoke: 0.6, crackle: 2, sparks: 0.8,
-    weight: 'heavy',
-  },
-  pina: {
-    name: 'Piñas',
-    desc: 'Llenas de resina: prenden al toque y largan una llamarada.',
-    shape: 'cone', length: 34, thickness: 34, density: 0.0014,
-    bark: '#7a5233', barkLight: '#a2734a', barkDark: '#3a2516', inner: '#d4a15e',
-    ignite: 0.18, warm: 0.4, moisture: 0,
-    fuel: 6, heat: 3,
-    flame: 'M', flameRate: 2.6, smoke: 0.5, crackle: 9, sparks: 3,
-    weight: 'light',
+    tier: 2, name: 'Tronco', plural: 'troncos', shape: 'log', length: 155, thickness: 34,
+    ignite: 0.75, warm: 6, fuel: 75, heat: 2.4,
+    flame: 'L', flameRate: 1, smoke: 0.6, crackle: 2, sparks: 0.8, weight: 'heavy',
   },
 };
+export const CUT_ORDER = ['rama', 'lena', 'tronco'];
 
-// Orden en la pila de leña.
-export const WOOD_ORDER = ['rama', 'seca', 'humeda', 'tronco', 'pina'];
+// Especies. Los números multiplican a los del tamaño. `from`: calor total desde el que el bosque la trae;
+// `weight`: qué tan seguido aparece; `bars`: lo que muestra la pila (de 1 a 5).
+export const SPECIES = {
+  pino: {
+    name: 'Pino', desc: 'Prende enseguida y chisporrotea, pero se consume rápido.',
+    from: 0, weight: 5, bars: { prende: 5, dura: 1, calor: 2 },
+    ignite: 0.7, warm: 0.7, fuel: 0.8, heat: 0.9, smoke: 1.5, crackle: 1.5, sparks: 1.3,
+    bark: '#8a5a36', barkLight: '#ad7a4e', barkDark: '#4c2f1b', inner: '#ecd29a',
+  },
+  lenga: {
+    name: 'Lenga', desc: 'Pareja en todo: la leña de todos los días.',
+    from: 100, weight: 4, bars: { prende: 3, dura: 2, calor: 3 },
+    ignite: 1, warm: 1, fuel: 1, heat: 1, smoke: 1, crackle: 1, sparks: 1,
+    bark: '#7c6250', barkLight: '#9c8069', barkDark: '#43342a', inner: '#dcb48c',
+  },
+  rauli: {
+    name: 'Raulí', desc: 'Llama alta y limpia, con poco humo.',
+    from: 700, weight: 3, bars: { prende: 3, dura: 3, calor: 4 },
+    ignite: 1.1, warm: 1.1, fuel: 1.15, heat: 1.2, smoke: 0.6, crackle: 0.8, sparks: 0.9,
+    bark: '#7a4632', barkLight: '#9c6249', barkDark: '#42241a', inner: '#cf8f6c',
+  },
+  roble: {
+    name: 'Roble', desc: 'Tarda en prender, dura mucho y calienta parejo.',
+    from: 2200, weight: 2, bars: { prende: 2, dura: 4, calor: 4 },
+    ignite: 1.3, warm: 1.4, fuel: 1.6, heat: 1.2, smoke: 0.8, crackle: 0.7, sparks: 0.7,
+    bark: '#54483c', barkLight: '#70614f', barkDark: '#2a241e', inner: '#c7a578',
+  },
+  quebracho: {
+    name: 'Quebracho', desc: 'Durísimo: necesita buen fuego debajo, pero rinde como ninguno.',
+    from: 6000, weight: 1, bars: { prende: 1, dura: 5, calor: 5 },
+    ignite: 1.7, warm: 2, fuel: 2.5, heat: 1.5, smoke: 0.5, crackle: 0.5, sparks: 0.6,
+    bark: '#3f2620', barkLight: '#5a382e', barkDark: '#1e110e', inner: '#a4553f',
+  },
+  humeda: {
+    name: 'Húmeda', desc: 'Madera mojada: primero se seca, humea y chilla. El secadero la recupera.',
+    from: Infinity, weight: 0, wet: true, bars: { prende: 1, dura: 2, calor: 1 },
+    ignite: 1.3, warm: 1.8, fuel: 0.95, heat: 0.5, smoke: 2.6, crackle: 0.9, sparks: 0.8,
+    moisture: 1, dryTime: 9,
+    bark: '#4a4034', barkLight: '#5f5446', barkDark: '#241e19', inner: '#9c8a6c',
+  },
+};
+// Orden en la pila (la húmeda, abajo de todo).
+export const SPECIES_ORDER = ['pino', 'lenga', 'rauli', 'roble', 'quebracho', 'humeda'];
+
+export const woodKey = (species, cut) => `${species}_${cut}`;
+
+function build() {
+  const out = {};
+  for (const sp of SPECIES_ORDER) {
+    const s = SPECIES[sp];
+    CUT_ORDER.forEach((cut, i) => {
+      const c = CUTS[cut];
+      out[woodKey(sp, cut)] = {
+        name: `${c.name} de ${s.name.toLowerCase()}`, short: c.name, desc: s.desc, species: sp, cut,
+        tier: c.tier, shape: c.shape, length: c.length, thickness: c.thickness, weight: c.weight,
+        bark: s.bark, barkLight: s.barkLight, barkDark: s.barkDark, inner: s.inner,
+        wet: !!s.wet, moisture: s.moisture || 0, dryTime: s.dryTime,
+        ignite: c.ignite * s.ignite, warm: c.warm * s.warm, fuel: c.fuel * s.fuel, heat: c.heat * s.heat,
+        flame: c.flame, flameRate: c.flameRate, smoke: c.smoke * s.smoke, crackle: c.crackle * s.crackle, sparks: c.sparks * s.sparks,
+        next: i > 0 ? woodKey(sp, CUT_ORDER[i - 1]) : null, // en qué se transforma al consumirse
+      };
+    });
+  }
+  // La piña no tiene especie ni se transforma: ocupa un lugar de rama y larga una llamarada.
+  out.pina = {
+    name: 'Piña', short: 'Piña', desc: 'Llena de resina: prende al toque y larga una llamarada. Va en un lugar de rama.', species: 'pina', cut: 'rama',
+    tier: 0, shape: 'cone', length: 34, thickness: 34, weight: 'light',
+    bark: '#7a5233', barkLight: '#a2734a', barkDark: '#3a2516', inner: '#d4a15e',
+    wet: false, moisture: 0, ignite: 0.18, warm: 0.4, fuel: 6, heat: 3,
+    flame: 'M', flameRate: 2.6, smoke: 0.5, crackle: 9, sparks: 3, next: null,
+  };
+  return out;
+}
+
+export const WOODS = build();
+
+// Área de un tipi completo: dos piezas de cada tamaño (de acá sale cuánta leña "llena" un pozo).
+export const TIPI_AREA = CUT_ORDER.reduce((sum, c) => sum + 2 * CUTS[c].length * CUTS[c].thickness, 0);
+
+// Especie que trae el bosque, según el calor total: las nuevas aparecen menos que las comunes.
+export function rollSpecies(totalCalor, rand = Math.random) {
+  const open = SPECIES_ORDER.filter((sp) => totalCalor >= SPECIES[sp].from);
+  let roll = rand() * open.reduce((sum, sp) => sum + SPECIES[sp].weight, 0);
+  for (const sp of open) {
+    roll -= SPECIES[sp].weight;
+    if (roll < 0) return sp;
+  }
+  return open[0];
+}

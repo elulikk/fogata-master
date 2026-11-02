@@ -49,15 +49,6 @@ const config = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  physics: {
-    default: 'matter',
-    matter: {
-      gravity: { y: 1.1 },
-      enableSleeping: true,
-      positionIterations: 10,
-      velocityIterations: 8,
-    },
-  },
   scene: [GameScene],
 };
 

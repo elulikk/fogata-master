@@ -11,7 +11,7 @@ export const NIGHT = 480;
 export const FIRST_DAY_LEFT = 240;
 export const NIGHT_PHASES = { day: DAY, dusk: DUSK, night: NIGHT };
 
-const BASE_GOAL = 4.0;     // calor/s de la primera noche (≈ 2 leños de seca+tronco en un pozo agrandado)
+const BASE_GOAL = 4.2;     // calor/s de la primera noche (≈ 2 leños de seca+tronco en un pozo agrandado)
 const GOAL_2 = 4.4;        // noche 2: una puerta, alcanzable con 1 pozo bien atendido
 const GOAL_GROWTH = 1.3;   // noches 3+: 30% más cada una
 const COLD_TIME = 70;      // s para congelarse con ritmo cero
