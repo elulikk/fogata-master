@@ -16,9 +16,9 @@ export const SIZES = [
   { name: 'Fogatita',   cap: 1.0, air: 1.00, half: 90,  wallH: 46, mult: 1.0, hs: 1.0, cost: null },
   { name: 'Fogata',     cap: 1.2, air: 1.05, half: 100, wallH: 52, mult: 1.5, hs: 1.2, cost: { calor: 320, tronco: 1 } },
   { name: 'Fogón',      cap: 1.45, air: 1.10, half: 112, wallH: 58, mult: 2.0, hs: 1.4, cost: { calor: 950, tronco: 2 } },
-  { name: 'Hogar',      cap: 1.8, air: 1.15, half: 126, wallH: 64, mult: 2.6, hs: 1.6, cost: { calor: 2600, tronco: 3 } },
-  { name: 'Hoguera',    cap: 2.1, air: 1.20, half: 142, wallH: 72, mult: 3.4, hs: 1.8, cost: { calor: 7000, tronco: 5 } },
-  { name: 'Pira',       cap: 2.5, air: 1.25, half: 160, wallH: 80, mult: 4.2, hs: 2.0, cost: { calor: 18000, tronco: 8 } },
+  { name: 'Hogar',      cap: 1.8, air: 1.15, half: 126, wallH: 64, mult: 2.6, hs: 1.6, cost: { calor: 2000, tronco: 3 } },
+  { name: 'Hoguera',    cap: 2.1, air: 1.20, half: 142, wallH: 72, mult: 3.4, hs: 1.8, cost: { calor: 5500, tronco: 5 } },
+  { name: 'Pira',       cap: 2.5, air: 1.25, half: 160, wallH: 80, mult: 4.2, hs: 2.0, cost: { calor: 14000, tronco: 8 } },
   { name: 'Faro',       cap: 3.0, air: 1.30, half: 180, wallH: 88, mult: 5.2, hs: 2.2, cost: { calor: 45000, tronco: 12 } },
   { name: 'Ceremonial', cap: 3.4, air: 1.35, half: 205, wallH: 96, mult: 6.5, hs: 2.4, cost: { calor: 120000, tronco: 18 } },
 ];

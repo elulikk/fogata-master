@@ -436,7 +436,7 @@ export class GameState {
       nightEase: Math.pow(0.88, c('vigilia')) * Math.pow(0.92, u('abrigo')),
       coldSlow: 1 + 0.2 * c('vigilia') + 0.1 * u('abrigo'),
       ashBonus: 1 + 0.1 * u('fortuna') + ach.ash,
-      base: 1.15, // el fuego rinde 15% más; compensa bajar el peso de los chispazos
+      base: 1.1, // el fuego rinde 10% más; compensa bajar el peso de los chispazos
       enlargeCost: Math.pow(0.9, c('cantera')) * Math.pow(0.95, u('canteraeterna')),
       structureBonus: (1 + 0.5 * c('chimenea')) * (1 + 0.1 * u('arquitecto')),
       fillThreshold: 0.4 - 0.12 * c('fogonero'), // carga (fracción de la capacidad) que da el bonus de tamaño pleno

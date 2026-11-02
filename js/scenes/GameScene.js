@@ -15,7 +15,7 @@ import { Weather } from '../objects/Weather.js';
 import { createTextures, W, H, GROUND_Y, layerTint, SKY_KEYS } from '../gfx/textures.js';
 import { pointSegDist, clamp } from '../utils/geom.js';
 import { SlotController } from './SlotController.js';
-import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE, STRUCTURE } from '../data/sizes.js';
+import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE, STRUCTURE, BASE_CAPACITY } from '../data/sizes.js';
 
 // Área de leña de un tronco (la capacidad se muestra en "troncos equivalentes").
 const TRONCO_AREA = 7400;
@@ -698,7 +698,8 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
       if (this.fx) this.worldMsg(pit, '¡Se derrumbó!', '#ff9a80', 1.2, 2, 1800);
     });
     // La primera vez de cada estructura, un toast explica qué hace.
-    ev.on('structure:formed', ({ type }) => {
+    ev.on('structure:formed', ({ type, quality }) => {
+      this.state.noteStructure(type, quality);
       this.ui.tutorial(`structure:${type}`);
       const info = {
         tipi: '🔺 Tipi: tira más aire y prende rápido, pero gasta un poco más de leña.',
@@ -936,18 +937,18 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     const r = Math.random;
     const loot = {};
     const add = (k, n) => { n = Math.round(n); if (n > 0) loot[k] = (loot[k] || 0) + n; };
-    add('rama', (3 + r() * 3) * m);
+    add('rama', (4 + r() * 4) * m);
     if (s.bought.hacha) add('tronco', (1 + r() * 2) * m);
     else if (r() < 0.35) add('tronco', 1);
     if (s.unlocked.tienda && r() < 0.35) add('seca', (1 + r()) * m);
-    if (s.totalCalor >= 1000 && r() < 0.4) add('pina', (1 + r() * 2) * m * s.mods.pinas);
-    if (scale >= 1 && r() < (s.res.fosforo < 3 ? 0.5 : 0.12)) add('fosforo', 1 + (r() < 0.3 ? 1 : 0));
+    if (s.totalCalor >= 1000 && s.res.pina < 8 && r() < 0.4) add('pina', (1 + r() * 2) * m * s.mods.pinas);
+    if (scale >= 1 && r() < (s.res.fosforo < 3 ? 0.5 : s.res.fosforo < 6 ? 0.12 : 0.03)) add('fosforo', 1 + (r() < 0.3 ? 1 : 0));
     // Con lluvia, lo que juntás viene mojado.
     const rain = this.weather.rain;
     if (rain > 0.1 && !dry) {
       for (const k of ['rama', 'seca']) {
         if (!loot[k]) continue;
-        const wet = Math.round(loot[k] * rain * 0.8);
+        const wet = Math.round(loot[k] * rain * 0.5);
         loot[k] -= wet;
         if (wet > 0) loot.humeda = (loot.humeda || 0) + Math.max(1, Math.round(wet / 2));
       }
@@ -1255,7 +1256,8 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     const night = data.night;
     const n = night.n;
     const goal = nightGoal(n, this.state.mods);
-    const ash = ev.success ? dawnAsh(n, this.state.mods) : 0;
+    const margin = ev.margin || 0;
+    const ash = ev.success ? dawnAsh(n, this.state.mods, margin) : 0;
     if (ev.success) {
       night.n++;
       night.dawns++;
@@ -1267,7 +1269,7 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
     const cardFree = !!ev.cardFree && !!data.unlocked.cartas;
     if (cardFree) night.freeCard = true;
     const summary = {
-      kind: 'dawn', n, success: ev.success, ash, cardFree, goal,
+      kind: 'dawn', n, success: ev.success, ash, cardFree, goal, margin,
       ratio: ev.ratio, calor: Math.round(data.totalCalor - night.startTotal),
       dawns: night.dawns, ...this.state.ashSummary(),
     };
@@ -1372,9 +1374,32 @@ ${extra}`, '#ffd36b', 1.3, 2, 2600);
           },
           affordable: this.state.canPay(it.cost(Math.min(level, max - 1))),
           effect: it.effect(Math.min(level, max - 1)),
+          effects: this.projectEffects(it, level),
           blocked: maxed ? null : it.blocked?.() || null,
         };
       });
+  }
+
+  // Efectos de "Agrandar": capacidad, aire, calor y "con tu leña" (calor estimado con la carga real del pozo).
+  projectEffects(it, level) {
+    if (!it.id.startsWith('agrandar_') || level >= MAX_SIZE) return undefined;
+    const a = SIZES[level];
+    const b = SIZES[level + 1];
+    const eff = [
+      { label: 'Capacidad', before: `×${a.cap}`, after: `×${b.cap}` },
+      { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
+      { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
+    ];
+    const pit = this.pitObjs[Number(it.id.split('_')[1])];
+    if (pit && pit.capacity > 0 && (pit.loadRatio || 0) > 0.02) {
+      // La carga real (área de leña) pasa a fracción de la capacidad del tamaño nuevo.
+      const load = Math.min(1.3, pit.loadRatio || 0);
+      const nextLoad = Math.min(1.3, (load * pit.capacity) / (BASE_CAPACITY * b.cap * (this.state.mods.capacity || 1)));
+      const now = this.state.projectRate(level, load);
+      const then = this.state.projectRate(level + 1, nextLoad);
+      eff.push({ label: 'Con tu leña', before: `${now.toFixed(1)}/s`, after: `${then.toFixed(1)}/s` });
+    }
+    return eff;
   }
 
   buy(id) {

@@ -14,7 +14,7 @@ export const WOODS = {
     shape: 'stick', length: 100, thickness: 15, density: 0.0012,
     bark: '#6e5641', barkLight: '#8f735a', barkDark: '#3b2c20', inner: '#c9a77a',
     ignite: 0.22, warm: 0.6, moisture: 0,
-    fuel: 10, heat: 0.8,
+    fuel: 10, heat: 0.9,
     flame: 'S', flameRate: 1.3, smoke: 0.35, crackle: 5, sparks: 1.3,
     weight: 'light',
   },

@@ -107,7 +107,7 @@ export const SHOP = [
     desc: 'Convierte madera húmeda en seca de a poco. Cada nivel lo hace más rápido.',
     max: 3,
     requires: (s) => s.unlocked.construir && s.totalCalor >= 800,
-    cost: (n) => ({ calor: grow(650, 2.2, n), tronco: 3 }),
+    cost: (n) => ({ calor: grow(600, 1.7, n), tronco: 3 }),
   },
   {
     id: 'ayudante', tab: 'construir', icon: '🧑‍🌾', name: 'Ayudante leñero',
@@ -115,7 +115,7 @@ export const SHOP = [
     desc: 'Va solo al bosque cada tanto y te trae leña. Cada nivel va más seguido.',
     max: 5,
     requires: (s) => s.unlocked.construir && s.totalCalor >= 1500,
-    cost: (n) => ({ calor: grow(1400, 1.9, n) }),
+    cost: (n) => ({ calor: grow(1100, 1.5, n) }),
   },
 ];
 
@@ -148,7 +148,7 @@ export function pitItems(s) {
       },
       cost: (n) => {
         const c = SIZES[Math.min(MAX_SIZE, n + 1)].cost;
-        return { calor: Math.round(c.calor * (1 + i * 0.8)), tronco: c.tronco, enlarge: true };
+        return { calor: Math.round(c.calor * (1 + i * 0.5)), tronco: c.tronco, enlarge: true };
       },
     });
   });
@@ -161,7 +161,7 @@ export function pitItems(s) {
       effect: () => ({ label: 'Fogatas', before: `${i}`, after: `${i + 1}` }),
       requires: () => s.unlocked.construir && s.totalCalor >= (i === 1 ? 900 : 4000),
       blocked: () => canFit([...s.pits.map((p) => p.size || 0), 0]).reason,
-      cost: () => (i === 1 ? { calor: 1000, tronco: 4 } : { calor: 4500, tronco: 8 }),
+      cost: () => (i === 1 ? { calor: 900, tronco: 4 } : { calor: 3500, tronco: 8 }),
     });
   }
   return items;

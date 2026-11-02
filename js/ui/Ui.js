@@ -1137,6 +1137,7 @@ export class Ui {
     if (d.kind === 'dawn') {
       const lines = [['Calor de la noche', fmt(d.calor || 0), '🔥']];
       if (num(d.goal)) lines.push(['Meta', `${d.goal.toFixed(1)} /s`, '🎯']);
+      if (d.success && num(d.margin) && d.margin > 0.05) lines.push(['Margen sobre la meta', `+${Math.round(d.margin * 100)} %`, '📈']);
       if (d.success) lines.push(['Cenizas ganadas', `+${d.ash}`, '🪦'], ['Cenizas disponibles', fmt(d.ashAvail ?? d.ashTotal ?? 0), '🪦'], ['Cenizas en total', fmt(d.ashTotal || 0), '🪦']);
       if (d.cardFree) lines.push(['Premio del alba', 'elegís 1 carta gratis', '🃏']);
       return {

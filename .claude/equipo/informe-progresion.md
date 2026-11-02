@@ -281,3 +281,26 @@ El tester debe re-medir; si 2.500 cae antes de 9 min, subir el hito.
 4. `shopItems()`: en Agrandar y Nueva fogata agregar "con tu leña: X → Y/s" con `state.projectRate(size, load real del pozo)`.
 5. `rollLoot` (~l.857): ramas `(4 + r()*4)`; piñas solo si `res.pina < 8`; fósforos solo si `res.fosforo < 6` (si no, 0,05); húmeda baja la fracción mojada a 0,5.
 6. Gust `night:gust` sigue sin emitirse (pendiente viejo).
+
+## C5 fase 2 — escena conectada y ritmo MEDIDO
+
+**Conectado en `GameScene.js`** (nextGoal ya lo había cableado UI; no lo dupliqué): `dawnAsh(n, mods, ev.margin)` + `margin` en el resumen (`Ui.describeSummary` agrega "Margen sobre la meta +X %", una línea); `state.noteStructure(type, quality)` en `structure:formed`; `shopItems()` pasa `effects` en Agrandar (capacidad, aire, calor y "Con tu leña: X → Y/s" con `projectRate` y la carga real del pozo; se oculta si el pozo está vacío); `rollLoot`: ramas 4–8 por viaje, piñas solo con < 8, fósforos 0,03 con ≥ 6, húmeda por lluvia ×0,5. `node --check` OK en data, GameState, GameScene, Ui; 0 errores de consola.
+
+**Bot**: `.claude/equipo/bot-ritmo.js` (pegar en la consola con una partida nueva en 127.0.0.1:8080; `await botRitmo.run(600)` en tandas; `botRitmo.policy = 'goal'` sigue el orden de nextGoal). Persona del tester: 1 leña cada 3 s (seca → troncos de sobra > 8 → ramas), bosque cuando no tiene ramas o leña buena, compra lo más barato que no sea consumible, 1.ª carta, sin chispazos. Mismo bot en el código de antes (commit inicial) y el actual, 2.400 s simulados.
+
+| Hito | Antes (bot) | Después (bot) |
+|---|---|---|
+| 500 | 2:13 | 1:49 |
+| 1.500 | 5:54 | 5:36 |
+| 2.500 | 8:09 | 8:09 |
+| 4.500 | 12:37 | 13:30 |
+| 10.000 | 22:34 | 24:13 |
+| ritmo a los 20 / 40 min | 7,4 / 10,4 | 8,1 / 11,9 |
+| Noche 1 (t, meta, margen) | 20:38, 2,5, sin medir | 20:38, **4,0, +67 %** |
+| Noche 2 | 34:08, 2,3 | 34:08, **4,4, +98 %** |
+
+Compras (después): fuelle 0:58, hacha 1:13, canasta 1:43, botas 1:49, techo 3:37, **Agrandar 1 a 5:09** (antes 5:20), leñera 6:44, secadero 9:19, **2.ª fogata 13:05**, Agrandar 2.ª fogata 14:06, Fogón 16:23, ayudante 21:34, 3.ª fogata 41:26. Hueco máximo entre compras: ≤ 2:15 hasta el minuto 20, de 2:20 a 2:50 entre 20 y 29 min, y **de 3 a 3,5 min después** (ritmo de la persona clavado en 8–12/s con ramas, costos 2.000–3.500).
+
+**Cambios para llegar ahí**: ramas 0,9 (0,8 hundía el arranque: 500 a 2:51); `mods.base` 1,15→1,1; ayudante 1.100×1,5ⁿ, secadero 600×1,7ⁿ, 2.ª pozo ×1,5 (antes ×1,8), tamaños 3/4/5 a 2.000/5.500/14.000, 2.ª fogata 900 y 3.ª 3.500; **metas de noche 1/2 = 4,0/4,4** (antes 2,5/2,3; noche 3 = 5,7) porque a esa hora el pozo ya rinde 6–8/s; un descuido de ~2 min (fuego muerto o solo ramas en un pozo chico) hace perder la noche 1; quien juega razonable pasa con margen 60–100 %.
+
+**Límites**: el bot nunca usa chispazos ni mezcla buena a propósito, así que 2.500 a 8:09 es el piso; una persona real va entre 9 y 14 min (tester: 10–18). Los huecos tardíos (> 29 min) siguen > 2 min: la salida es que el jugador use seca/tronco (más ritmo) o bajar más los costos tardíos; no lo toqué para no abaratar el final. La partida del navegador de pruebas quedó con el guardado automático del juego nuevo (654 caracteres), sin datos míos; `state.locked = true`.
