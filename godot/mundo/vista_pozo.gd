@@ -11,6 +11,10 @@ var _luz: OmniLight3D
 var _chispas: GPUParticles3D
 var _humo: GPUParticles3D
 var _chispa_mat: StandardMaterial3D
+var _montones: Array[MeshInstance3D] = []
+var _ceniza_vista := -1.0
+
+const MONTONES := 10
 
 
 func configurar(p: Pozo, ruido: Texture2D, ruido_normal: Texture2D) -> void:
@@ -48,6 +52,7 @@ func armar() -> void:
 	add_child(_construido)
 	var s := pozo.spec()
 	_crear_lecho(s.radio)
+	_crear_ceniza(s.radio)
 	_crear_piedras(s)
 	for parte: Dictionary in s.partes:
 		_crear_parte(parte)
@@ -70,6 +75,38 @@ func _crear_lecho(radio: float) -> void:
 	malla.mesh = plano
 	malla.position.y = 0.006
 	_construido.add_child(malla)
+
+
+# Montoncitos de ceniza que aparecen de a uno a medida que el pozo se llena de ella.
+func _crear_ceniza(radio: float) -> void:
+	_montones.clear()
+	var esfera := SphereMesh.new()
+	esfera.radial_segments = 12
+	esfera.rings = 6
+	esfera.material = _material(Color(0.62, 0.6, 0.57))
+	for i in MONTONES:
+		var m := MeshInstance3D.new()
+		m.mesh = esfera
+		var ancho := radio * randf_range(0.28, 0.45)
+		var ang := randf() * TAU
+		m.position = Vector3(cos(ang), 0.0, sin(ang)) * radio * sqrt(randf()) * 0.75 + Vector3.UP * 0.004
+		m.rotation.y = randf() * TAU
+		m.set_meta("base", Vector3(ancho, ancho * 0.3, ancho * randf_range(0.7, 1.0)))
+		m.scale = Vector3.ZERO
+		_construido.add_child(m)
+		_montones.append(m)
+	_ceniza_vista = -1.0
+
+
+func _montones_de_ceniza() -> void:
+	if is_equal_approx(_ceniza_vista, pozo.ceniza):
+		return
+	_ceniza_vista = pozo.ceniza
+	var lleno := clampf(pozo.ceniza / Pozo.CENIZA_MAXIMA, 0.0, 1.0) * 1.25
+	for i in _montones.size():
+		var s := clampf((lleno - float(i) / _montones.size()) * 4.0, 0.0, 1.0)
+		_montones[i].scale = _montones[i].get_meta("base") * s
+		_montones[i].visible = s > 0.01
 
 
 func _crear_piedras(s: Dictionary) -> void:
@@ -224,21 +261,8 @@ func _crear_particulas() -> void:
 	_chispas.draw_pass_1 = punto
 	add_child(_chispas)
 
-	var tex := GradientTexture2D.new()
-	var grad := Gradient.new()
-	grad.colors = PackedColorArray([Color(1, 1, 1, 0.55), Color(1, 1, 1, 0)])
-	tex.gradient = grad
-	tex.fill = GradientTexture2D.FILL_RADIAL
-	tex.fill_from = Vector2(0.5, 0.5)
-	tex.fill_to = Vector2(0.5, 0.0)
-	var mat := StandardMaterial3D.new()
-	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
-	mat.vertex_color_use_as_albedo = true
-	mat.albedo_texture = tex
 	var cuadro := QuadMesh.new()
-	cuadro.material = mat
+	cuadro.material = _material_difuso()
 	var h := ParticleProcessMaterial.new()
 	h.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
 	h.emission_sphere_radius = 0.2
@@ -272,7 +296,63 @@ func _crear_particulas() -> void:
 	add_child(_humo)
 
 
+# Mancha suave y translúcida para humo y polvo de ceniza.
+func _material_difuso() -> StandardMaterial3D:
+	var tex := GradientTexture2D.new()
+	var grad := Gradient.new()
+	grad.colors = PackedColorArray([Color(1, 1, 1, 0.55), Color(1, 1, 1, 0)])
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_texture = tex
+	return mat
+
+
+# Una nubecita de polvo gris que sube y se deshace: al volverse ceniza una pieza y al rastrillar.
+func bocanada(pos: Vector3, cantidad: int, fuerza: float) -> void:
+	var g := GPUParticles3D.new()
+	g.amount = cantidad
+	g.lifetime = 1.8
+	g.one_shot = true
+	g.explosiveness = 0.9
+	g.local_coords = false
+	g.visibility_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 5, 6))
+	var p := ParticleProcessMaterial.new()
+	p.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = 0.1 + 0.25 * fuerza
+	p.direction = Vector3.UP
+	p.spread = 55.0
+	p.initial_velocity_min = 0.1 * fuerza
+	p.initial_velocity_max = 0.5 * fuerza
+	p.gravity = Vector3(0.04, 0.05, 0.0)
+	p.damping_min = 0.4
+	p.damping_max = 0.8
+	p.scale_min = 0.08 + 0.12 * fuerza
+	p.scale_max = 0.14 + 0.2 * fuerza
+	var color := Gradient.new()
+	color.offsets = PackedFloat32Array([0.0, 0.2, 1.0])
+	color.colors = PackedColorArray([Color(0.4, 0.39, 0.38, 0.0), Color(0.4, 0.39, 0.38, 0.22), Color(0.3, 0.29, 0.29, 0.0)])
+	var color_tex := GradientTexture1D.new()
+	color_tex.gradient = color
+	p.color_ramp = color_tex
+	g.process_material = p
+	var cuadro := QuadMesh.new()
+	cuadro.material = _material_difuso()
+	g.draw_pass_1 = cuadro
+	add_child(g)
+	g.global_position = pos
+	g.emitting = true
+	get_tree().create_timer(g.lifetime + 0.5).timeout.connect(g.queue_free)
+
+
 func _process(_delta: float) -> void:
+	_montones_de_ceniza()
 	var i := clampf(pozo.intensidad / (2.5 * pozo.spec().tipis), 0.0, 1.0)
 	var t := Time.get_ticks_msec()
 	var parpadeo := 0.86 + 0.14 * sin(t * 0.011) * sin(t * 0.0037)

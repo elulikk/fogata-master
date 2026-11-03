@@ -4,6 +4,7 @@ shader_type spatial;
 uniform vec3 color_base = vec3(0.36, 0.25, 0.16);
 uniform float quemado : hint_range(0.0, 1.0) = 0.0;
 uniform float brasa : hint_range(0.0, 1.0) = 0.0;
+uniform float ceniza : hint_range(0.0, 1.0) = 0.0;
 uniform float radio = 0.05;
 uniform float semilla = 0.0;
 uniform sampler2D ruido : repeat_enable, filter_linear_mipmap;
@@ -50,4 +51,13 @@ void fragment() {
 	float grietas = smoothstep(0.42, 0.58, fina) * (1.0 - smoothstep(0.58, 0.72, fina));
 	float latido = 0.72 + 0.28 * sin(TIME * 2.3 + semilla * 40.0 + veta * 11.0);
 	EMISSION = vec3(2.2, 0.48, 0.05) * grietas * carbon * brasa * latido;
+	// El carbón al rojo también brilla entero, más suave que las grietas.
+	EMISSION += vec3(1.9, 0.36, 0.04) * carbon * brasa * 0.28 * latido * (0.6 + 0.4 * fina);
+
+	// La ceniza gris cubre el carbón por manchas y apaga el brillo.
+	float cubre = smoothstep(veta * 0.5, veta * 0.5 + 0.3, ceniza);
+	vec3 gris = vec3(0.6, 0.58, 0.56) * mix(0.7, 1.1, fina);
+	ALBEDO = mix(ALBEDO, gris, cubre);
+	ROUGHNESS = mix(ROUGHNESS, 1.0, cubre);
+	EMISSION *= 1.0 - cubre;
 }

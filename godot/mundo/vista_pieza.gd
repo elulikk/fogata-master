@@ -95,8 +95,14 @@ func _process(_delta: float) -> void:
 		quemado = clampf(leno.temp / maxf(0.2, leno.madera.prende) - 0.4, 0.0, 0.3)
 	_material.set_shader_parameter("quemado", quemado)
 	_material.set_shader_parameter("brasa", leno.brasa if leno.estado == "brasas" else clampf(leno.llama * 0.5, 0.0, 1.0))
+	# Al quemarse se afina y se acorta; en brasas se cubre de ceniza hasta quedar gris.
 	var grosor := lerpf(1.0, 0.5, avance) if leno.ardiendo() else 1.0
-	_mesh.scale = Vector3(grosor, 1.0, grosor)
+	var largo := lerpf(1.0, 0.72, avance) if leno.ardiendo() else 1.0
+	_mesh.scale = Vector3(grosor, largo, grosor)
+	var ceniza := 0.0
+	if leno.estado == "brasas":
+		ceniza = clampf(1.0 - leno.combustible / (leno.combustible_max * Fuego.BRASAS_DESDE), 0.0, 1.0) * 0.92
+	_material.set_shader_parameter("ceniza", ceniza)
 	if leno.llama > 0.03 and _llamas == null:
 		_crear_llamas()
 	if _llamas:

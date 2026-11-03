@@ -6,6 +6,7 @@ extends CanvasLayer
 signal mano_cambia(tipo: String, id: String)
 signal sonar(nombre: String)
 
+const CENIZA_PIDE_RASTRILLO := 0.9
 const VENTANAS_TECLA := {KEY_S: "pyroshop", KEY_C: "construir", KEY_H: "arbol", KEY_A: "cenizas"}
 
 var juego: Juego
@@ -214,7 +215,7 @@ func elegir_corte(corte: String) -> void:
 func elegir_herramienta(id: String) -> void:
 	mano_tipo = "herramienta"
 	mano_id = id
-	if not Herramientas.de(id).get("sopla", false):
+	if not Herramientas.de(id).get("sopla", false) and not Herramientas.de(id).get("limpia", false):
 		juego.estado.d.herramienta = id
 	sonar.emit("click")
 	mano_cambia.emit(mano_tipo, mano_id)
@@ -533,6 +534,8 @@ func _refrescar_hud() -> void:
 	_herramientas.pedernal.text = "🪨 Pedernal (P)"
 	_herramientas.fuelle.text = "🪗 Fuelle (G)"
 	_herramientas.fuelle.visible = d.bought.get("fuelle", 0) > 0
+	_herramientas.rastrillo.text = "🧹 Rastrillo (R)"
+	_herramientas.rastrillo.visible = Herramientas.disponible(d, Herramientas.de("rastrillo"))
 
 	_acciones.pyroshop.visible = abierto.get("tienda", false)
 	_acciones.construir.visible = abierto.get("construir", false)
@@ -561,6 +564,8 @@ func _pista_actual() -> String:
 		return "Quedan brasas… poné ramas, que prenden con poco."
 	if e.madera_total() == 0 and d.unlocked.get("tienda", false):
 		return "No te queda leña: comprá en Pyroshop (S)."
+	if d.unlocked.get("rastrillo", false) and fuego.pozos.any(func(p: Pozo) -> bool: return p.ceniza >= CENIZA_PIDE_RASTRILLO):
+		return "La ceniza ahoga el fuego: elegí el rastrillo (R) y tocá la fogata."
 	if d.playTime < 240.0 and d.totalCalor >= 15.0:
 		return "Cámara: arrastrá el suelo o clic derecho para girar · rueda para el zoom."
 	return ""

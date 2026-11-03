@@ -92,6 +92,7 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 		"encendida": sonidos.tocar("prende", 0.7 if datos.suave else 1.0)
 		"chasquido": _chasquido(datos)
 		"ahogada": sonidos.tocar("sise", 0.6)
+		"rastrillada": _pozos[datos.pozo].bocanada(datos.pozo.centro + Vector3.UP * 0.1, 8 + int(datos.sacada * 16.0), 0.55)
 		"soplo": sonidos.tocar("soplo")
 		"seca": ui.avisar("La madera húmeda primero se seca: humea y chilla. Después prende.")
 		"armada": ui.avisar("🔺 Fogata armada: con los tres cortes tira mejor y rinde más.", "hito")
@@ -180,6 +181,7 @@ func _sacar_pieza(l: Leno, ceniza: bool) -> void:
 	_despertar(l)
 	if ceniza:
 		sonidos.tocar("ceniza", 0.6)
+		_pozos[l.pozo].bocanada(v.global_position, 5, 0.3)
 		v.leno = null
 		v.collision_layer = 0
 		var t := v.create_tween()
@@ -318,7 +320,7 @@ func _tecla(k: int) -> void:
 		if k == KEY_1 + i:
 			ui.elegir_corte(Maderas.ORDEN_CORTES[i])
 	for h: Dictionary in Herramientas.TODAS:
-		if k == h.tecla and (not h.has("compra") or juego.estado.d.bought.get(h.compra, 0) > 0):
+		if k == h.tecla and Herramientas.disponible(juego.estado.d, h):
 			ui.elegir_herramienta(h.id)
 
 
@@ -354,6 +356,10 @@ func _clic(pos: Vector2) -> void:
 			juego.soltar(ui.mano_id, p, suelo)
 		return
 	var h := Herramientas.de(ui.mano_id)
+	if h.get("limpia", false):
+		if p:
+			juego.rastrillar(p)
+		return
 	if h.get("sopla", false):
 		if p and p.prendido():
 			_soplando = p
@@ -467,6 +473,22 @@ func _prueba_automatica(prefijo: String) -> void:
 	await _esperar(5.0)
 	_medir("a los 5 s")
 	await _capturar(prefijo + "-4-fogon.png")
+
+	# Ceniza en el pozo y brasas que se cubren de ceniza; después el rastrillo.
+	p.ceniza = 1.2
+	var n := 0
+	for l: Leno in p.lenos:
+		if l.ardiendo() and n < 4:
+			l.estado = "brasas"
+			l.combustible = l.combustible_max * (0.03 + 0.05 * n)
+			n += 1
+	await _esperar(1.0)
+	await _capturar(prefijo + "-4b-ceniza.png")
+	print("RASTRILLO ceniza antes=%.2f ahogo=%.2f" % [p.ceniza, p.ahogo()])
+	juego.rastrillar(p)
+	await _esperar(0.5)
+	await _capturar(prefijo + "-4c-rastrillo.png")
+	print("RASTRILLO ceniza despues=%.2f ahogo=%.2f" % [p.ceniza, p.ahogo()])
 
 	# Lo construido de cada escalón, y dos fogatas.
 	for t in [3, 5, 7]:

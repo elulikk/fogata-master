@@ -8,6 +8,9 @@ signal evento(nombre: String, datos: Dictionary)
 var estado := Estado.new()
 var clima := Clima.new()
 var fuego: Fuego
+const RASTRILLO_MINIMO := 0.08
+const RASTRILLO_AVISA_EN := 0.3
+
 var pausado := 0 # cuántas ventanas lo tienen en pausa
 var _proveedores := {}
 var _reloj_mercado := 0.0
@@ -150,6 +153,21 @@ func usar_herramienta(id: String, pos: Vector3, p: Pozo) -> void:
 		evento.emit("aviso", {"texto": "Te quedaste sin fósforos: pasaste al pedernal (cuesta más).", "tipo": "malo"})
 
 
+# Saca la ceniza del pozo: destapa el tiro y aviva el lecho de brasas.
+func rastrillar(p: Pozo) -> bool:
+	if p.ceniza < RASTRILLO_MINIMO:
+		evento.emit("rechazo", {"texto": "No hay ceniza que sacar"})
+		return false
+	var sacada := p.ceniza
+	p.ceniza = 0.0
+	p.lecho = minf(1.0, p.lecho + 0.04 + 0.06 * sacada)
+	p.fuelle = maxf(p.fuelle, 0.25)
+	p.destello = maxf(p.destello, 0.4)
+	evento.emit("rastrillada", {"pozo": p, "sacada": sacada})
+	evento.emit("sonido", {"nombre": "rastrillo"})
+	return true
+
+
 func comprar(id: String) -> bool:
 	var d := estado.d
 	var it := {}
@@ -267,6 +285,10 @@ func _revisar() -> void:
 			d.night.phase = "day"
 			d.night.t = Noches.DIA - Noches.PRIMER_DIA_RESTA
 		evento.emit("aviso", {"texto": m.aviso, "tipo": "hito"})
+		evento.emit("sonido", {"nombre": "hito"})
+	if not d.unlocked.get("rastrillo", false) and fuego.pozos.any(func(p: Pozo) -> bool: return p.ceniza >= RASTRILLO_AVISA_EN):
+		d.unlocked["rastrillo"] = true
+		evento.emit("aviso", {"texto": "🧹 La ceniza se junta y ahoga el fuego: el rastrillo (R) la saca y aviva las brasas.", "tipo": "hito"})
 		evento.emit("sonido", {"nombre": "hito"})
 	for a: Dictionary in estado.revisar_logros():
 		evento.emit("aviso", {"texto": "%s Logro: %s (%s)" % [a.icono, a.nombre, a.premio], "tipo": "logro"})

@@ -14,6 +14,7 @@ const RECETAS := {
 	"soplo": [{"ruido": true, "f": 700.0, "f2": 1500.0, "ataque": 0.06, "caida": 0.3, "vol": 0.5}],
 	"sise": [{"ruido": true, "f": 6000.0, "f2": 3000.0, "ataque": 0.02, "caida": 0.55, "vol": 0.35}],
 	"ceniza": [{"ruido": true, "f": 1500.0, "f2": 500.0, "ataque": 0.01, "caida": 0.3, "vol": 0.35}],
+	"rastrillo": [{"ruido": true, "f": 2200.0, "f2": 700.0, "ataque": 0.03, "caida": 0.4, "vol": 0.5}, {"ruido": true, "f": 600.0, "f2": 300.0, "caida": 0.25, "vol": 0.3, "t": 0.12}],
 	"moneda": [{"f": 1300.0, "f2": 1700.0, "caida": 0.09, "vol": 0.3}],
 	"compra": [{"f": 660.0, "caida": 0.09, "vol": 0.35}, {"f": 990.0, "caida": 0.14, "vol": 0.35, "t": 0.07}],
 	"click": [{"f": 900.0, "f2": 700.0, "caida": 0.04, "vol": 0.3}],

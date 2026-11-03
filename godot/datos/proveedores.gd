@@ -4,6 +4,8 @@ class_name Proveedores
 
 # Hasta cuántas piezas de cada corte dejan los proveedores en la pila. Comprando no hay tope.
 const TOPE_PILA := {"rama": 6, "lena": 6, "tronco": 3}
+# Ceniza a partir de la cual el cuidador rastrilla.
+const CENIZA_DE_CUIDADOR := 0.9
 # Ramas del suelo: red para no quedar trabado sin leña ni calor.
 const RAMAS_DEL_SUELO_BAJO := 3
 
@@ -82,6 +84,14 @@ static func _mas_abundante(res: Dictionary, corte: String) -> String:
 	return mejor
 
 
+# La fogata con tanta ceniza que el cuidador la rastrilla, o {}.
+static func sucio(j) -> Dictionary:
+	for p: Pozo in j.fuego.pozos:
+		if p.ceniza >= CENIZA_DE_CUIDADOR:
+			return {"pozo": p}
+	return {}
+
+
 # Qué cargaría el cuidador ahora: la fogata prendida con más lugar libre de un corte que tengas en la pila.
 static func siguiente_carga(j) -> Dictionary:
 	var mejor := {}
@@ -128,8 +138,12 @@ static func lista() -> Array:
 			"id": "cuidador", "etiqueta": "🧤 Cuidador",
 			"nivel": func(d: Dictionary) -> int: return int(d.bought.get("cuidador", 0)),
 			"cada": func(n: int, _m: Dictionary) -> float: return 14.0 / (1.0 + 0.6 * (n - 1)),
-			"listo": func(j) -> bool: return not siguiente_carga(j).is_empty(),
+			"listo": func(j) -> bool: return not siguiente_carga(j).is_empty() or not sucio(j).is_empty(),
 			"correr": func(j, _n: int) -> void:
+				var sucio_p := sucio(j)
+				if not sucio_p.is_empty():
+					j.rastrillar(sucio_p.pozo)
+					return
 				var c := siguiente_carga(j)
 				if not c.is_empty():
 					var p: Pozo = c.pozo

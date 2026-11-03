@@ -2,6 +2,9 @@ class_name Pozo
 extends RefCounted
 # Un pozo de fogata: su leña, lecho de brasas y aire. Se dibuja en mundo/vista_pozo.gd.
 
+const CENIZA_SIN_EFECTO := 0.4
+const CENIZA_MAXIMA := 1.5
+
 var indice := 0
 var tam := 0
 var techo := false
@@ -74,6 +77,15 @@ func mult_calor(mods: Dictionary) -> float:
 	var s := spec()
 	var f := clampf(carga / maxf(1.0, Fogones.area_base(tam)) / maxf(0.05, mods.fill_threshold), 0.0, 1.0)
 	return 1.0 + (float(s.mult) / s.tipis - 1.0) * f
+
+
+# Ceniza de más tapa el lecho y ahoga el tiro (hasta -25% de aire); un poco abriga y frena el enfriado del lecho.
+func ahogo() -> float:
+	return 0.25 * clampf((ceniza - CENIZA_SIN_EFECTO) / (CENIZA_MAXIMA - CENIZA_SIN_EFECTO), 0.0, 1.0)
+
+
+func abrigo() -> float:
+	return 0.25 * clampf(ceniza / CENIZA_SIN_EFECTO, 0.0, 1.0)
 
 
 func prendido() -> bool:

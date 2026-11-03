@@ -7,6 +7,12 @@ signal evento(nombre: String, datos: Dictionary)
 
 const REPARTE_CALOR := 1.6
 const ACHICA_A := 0.5
+# Fracción de combustible con la que la llama pasa a brasas.
+const BRASAS_DESDE := 0.2
+# Ceniza que deja cada pieza (se diluye en pozos grandes), lo que se asienta sola por segundo y lo que lava la lluvia.
+const CENIZA_POR_PIEZA := 0.025
+const CENIZA_ASIENTA := 0.004
+const CENIZA_LAVA := 0.02
 const PICO := {"umbral": 1.0, "dura": 5.0, "espera": 120.0}
 
 var estado: Estado
@@ -73,7 +79,7 @@ func tick(dt: float, clima: Clima) -> void:
 		p.destello = maxf(0.0, p.destello - dt * 2.2)
 		p.fuelle = maxf(maxf(0.0, p.fuelle - dt * 0.7), p.ventajas.bellows)
 		_estructura(p, dt)
-		p.aire = minf(1.5, (1.0 + p.fuelle * 0.6 + viento * 0.3) * p.spec().aire * p.s_aire * m.draft)
+		p.aire = minf(1.5, (1.0 + p.fuelle * 0.6 + viento * 0.3) * p.spec().aire * p.s_aire * m.draft * (1.0 - p.ahogo()))
 		p.lluvia = 0.0 if p.techo or p.ventajas.cubierto else lluvia_todo * (1.0 + 0.1 * p.tam)
 		if p.armada:
 			p.lluvia *= 1.0 - 0.35 * p.calidad
@@ -102,7 +108,8 @@ func tick(dt: float, clima: Clima) -> void:
 
 	var suma := 0.0
 	for p in pozos:
-		p.lecho = maxf(0.0, p.lecho - dt * (0.012 * m.bed_decay * p.ventajas.bed_decay + p.lluvia * 0.08))
+		p.lecho = maxf(0.0, p.lecho - dt * (0.012 * m.bed_decay * p.ventajas.bed_decay * (1.0 - p.abrigo()) + p.lluvia * 0.08))
+		p.ceniza = maxf(0.0, p.ceniza - dt * (CENIZA_ASIENTA + p.lluvia * CENIZA_LAVA))
 		var calor_pozo: float = p.lecho * 0.5 * (1.0 + p.fuelle)
 		for l in p.lenos:
 			calor_pozo += l.calor_sale
@@ -179,10 +186,10 @@ func _actualizar(l: Leno, entra: float, dt: float, viento: float) -> void:
 			evento.emit("chasquido", {"leno": l, "fuerza": 0.4 + 0.6 * minf(1.0, l.llama)})
 		if l.tiempo_bajo > 2.2:
 			_a_brasas(l, true)
-		elif l.combustible <= l.combustible_max * 0.2:
+		elif l.combustible <= l.combustible_max * BRASAS_DESDE:
 			_a_brasas(l, false)
 	elif l.estado == "brasas":
-		var base := 1.0 if l.ahogada else 0.35 + 0.65 * clampf(l.combustible / (l.combustible_max * 0.2), 0.0, 1.0)
+		var base := 1.0 if l.ahogada else 0.35 + 0.65 * clampf(l.combustible / (l.combustible_max * BRASAS_DESDE), 0.0, 1.0)
 		l.brasa = base * clampf(l.aire, 0.3, 1.3) * (1.0 - l.lluvia * 0.4)
 		l.combustible -= dt * (0.12 if l.ahogada else 0.3) * (1.0 + p.fuelle * 1.5 + l.lluvia * 2.0 + viento * 0.5) / m.embers * p.s_quema * p.spec().quema
 		l.calor_sale = w.calor * 0.5 * l.brasa
@@ -194,7 +201,7 @@ func _actualizar(l: Leno, entra: float, dt: float, viento: float) -> void:
 				encender(l, true)
 		else:
 			l.tiempo_rebrote = 0.0
-		if l.ahogada and l.combustible <= l.combustible_max * 0.2:
+		if l.ahogada and l.combustible <= l.combustible_max * BRASAS_DESDE:
 			l.ahogada = false
 		if l.combustible <= 0.0:
 			_a_ceniza(l)
@@ -213,7 +220,7 @@ func _a_brasas(l: Leno, ahogada: bool) -> void:
 func _a_ceniza(l: Leno) -> void:
 	var p := l.pozo
 	l.estado = "ceniza"
-	p.ceniza = minf(1.5, p.ceniza + 0.06)
+	p.ceniza = minf(Pozo.CENIZA_MAXIMA, p.ceniza + CENIZA_POR_PIEZA / (1.0 + 0.3 * p.tam))
 	p.lecho = minf(1.0, p.lecho + 0.18 * l.madera.calor)
 	p.lenos.erase(l)
 	evento.emit("ceniza", {"leno": l})

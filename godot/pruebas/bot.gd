@@ -1,5 +1,5 @@
 extends SceneTree
-# Juega sola una partida sin gráficos y mide el balance. Uso: godot --headless --path godot --script pruebas/bot.gd -- <minutos>
+# Juega sola una partida sin gráficos y mide el balance. Uso: godot --headless --path godot --script pruebas/bot.gd -- <minutos> [sin_rastrillo]
 # Carga leña cuando hay lugar, prende lo crudo si se apagó, gasta puntos y compra lo que puede, primero evolucionar.
 
 const PASO := 0.1
@@ -7,8 +7,12 @@ const PASO := 0.1
 
 func _init() -> void:
 	var minutos := 30.0
+	var rastrilla := true
 	for a in OS.get_cmdline_user_args():
-		minutos = a.to_float()
+		if a == "sin_rastrillo":
+			rastrilla = false
+		else:
+			minutos = a.to_float()
 	var j := Juego.new()
 	j.estado.bloqueado = true
 	j.partida_nueva()
@@ -45,6 +49,8 @@ func _init() -> void:
 				hecho = true
 				break
 		for p in j.fuego.pozos:
+			if rastrilla and not hecho and p.ceniza >= 0.9 and j.rastrillar(p):
+				hecho = true
 			if hecho:
 				break
 			var cruda: Array = p.lenos.filter(func(l: Leno) -> bool: return l.estado == "cruda")
@@ -69,5 +75,5 @@ func _init() -> void:
 					soltadas[corte] += 1
 					hecho = true
 		if int(t) % 300 == 0:
-			print("%6.1f min  ritmo %.1f/s  calor %d  total %d  nivel %d  soltadas %s" % [t / 60.0, j.estado.ritmo, d.calor, d.totalCalor, d.level, str(soltadas)])
+			print("%6.1f min  ritmo %.1f/s  calor %d  total %d  nivel %d  ceniza %.2f  soltadas %s" % [t / 60.0, j.estado.ritmo, d.calor, d.totalCalor, d.level, j.fuego.pozos[0].ceniza, str(soltadas)])
 	quit()

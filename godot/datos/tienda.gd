@@ -80,7 +80,7 @@ static func _fijos_lista() -> Array:
 			"costo": func(n: float) -> int: return _crece(320.0, 1.7, n),
 		},
 		{
-			"id": "cuidador", "tab": "construir", "icono": "🧤", "nombre": "Cuidador del fuego", "desc": "Va cargando solo la leña de la pila en las fogatas prendidas. Cada nivel, más seguido.", "max": 3, "meta": 7,
+			"id": "cuidador", "tab": "construir", "icono": "🧤", "nombre": "Cuidador del fuego", "desc": "Carga solo la leña de la pila en las fogatas prendidas y rastrilla la ceniza que las ahoga. Cada nivel, más seguido.", "max": 3, "meta": 7,
 			"requiere": func(d: Dictionary) -> bool: return abierto.call(d, "construir") and d.totalCalor >= 1200,
 			"costo": func(n: float) -> int: return _crece(900.0, 2.0, n),
 		},
