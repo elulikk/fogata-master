@@ -512,6 +512,7 @@ func _refrescar_hud() -> void:
 			"night": _noche.text = "🌙 Noche %d · pide %.1f/s · tenés %.1f/s · %ds" % [ni.n, ni.meta, e.ritmo, ceili(ni.resta)]
 		_barra_frio.value = d.night.cold
 
+	_avisos.visible = not hay_ventana()
 	_pista.text = _pista_actual()
 	_pista.visible = not _pista.text.is_empty()
 
@@ -560,4 +561,6 @@ func _pista_actual() -> String:
 		return "Quedan brasas… poné ramas, que prenden con poco."
 	if e.madera_total() == 0 and d.unlocked.get("tienda", false):
 		return "No te queda leña: comprá en Pyroshop (S)."
+	if d.playTime < 240.0 and d.totalCalor >= 15.0:
+		return "Cámara: arrastrá el suelo o clic derecho para girar · rueda para el zoom."
 	return ""

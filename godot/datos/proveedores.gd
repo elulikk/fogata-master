@@ -70,6 +70,37 @@ static func entrega(j, escala: float) -> Dictionary:
 	return botin
 
 
+# La pieza más abundante de ese corte en la pila (sin piñas ni húmeda), o "".
+static func _mas_abundante(res: Dictionary, corte: String) -> String:
+	var mejor := ""
+	var hay := 0
+	for k: String in Maderas.todas():
+		var w: Dictionary = Maderas.de(k)
+		if w.corte == corte and not w.cono and w.especie != "humeda" and int(res.get(k, 0)) > hay:
+			hay = int(res[k])
+			mejor = k
+	return mejor
+
+
+# Qué cargaría el cuidador ahora: la fogata prendida con más lugar libre de un corte que tengas en la pila.
+static func siguiente_carga(j) -> Dictionary:
+	var mejor := {}
+	var libre_mejor := 0.0
+	for p: Pozo in j.fuego.pozos:
+		if not p.prendido():
+			continue
+		var cortes: Array = Maderas.ORDEN_CORTES.duplicate()
+		cortes.reverse() # a igual lugar libre, primero lo más grueso
+		for corte: String in cortes:
+			var cupo: int = p.cupo(corte, j.estado.mods)
+			var libre: float = (cupo - p.cuantos(corte)) / maxf(1.0, cupo)
+			var clave := _mas_abundante(j.estado.d.res, corte)
+			if cupo > 0 and libre > libre_mejor and not clave.is_empty():
+				libre_mejor = libre
+				mejor = {"clave": clave, "pozo": p}
+	return mejor
+
+
 static func lista() -> Array:
 	if not _lista.is_empty():
 		return _lista
@@ -92,6 +123,17 @@ static func lista() -> Array:
 			"nivel": func(d: Dictionary) -> int: return int(d.arbol.get("sabueso", 0)),
 			"cada": func(n: int, m: Dictionary) -> float: return 60.0 / (1.0 + 0.5 * (n - 1)) * m.helper_every,
 			"correr": func(j, _n: int) -> void: j.dar_botin(entrega(j, 0.4)),
+		},
+		{
+			"id": "cuidador", "etiqueta": "🧤 Cuidador",
+			"nivel": func(d: Dictionary) -> int: return int(d.bought.get("cuidador", 0)),
+			"cada": func(n: int, _m: Dictionary) -> float: return 14.0 / (1.0 + 0.6 * (n - 1)),
+			"listo": func(j) -> bool: return not siguiente_carga(j).is_empty(),
+			"correr": func(j, _n: int) -> void:
+				var c := siguiente_carga(j)
+				if not c.is_empty():
+					var p: Pozo = c.pozo
+					j.soltar(c.clave, p, p.centro + Vector3(randf_range(-0.2, 0.2), 0.0, randf_range(-0.2, 0.2))),
 		},
 		{
 			"id": "secadero", "etiqueta": "🧱 Secadero",

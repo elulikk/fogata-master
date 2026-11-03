@@ -64,6 +64,8 @@ func refrescar() -> void:
 		f.add_child(_celda(datos.nombre, COLUMNAS.nombre))
 		var d := _celda(datos.get("desc", ""), 0, Tema.TENUE)
 		d.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		d.clip_text = false
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		d.tooltip_text = datos.get("desc", "")
 		d.mouse_filter = Control.MOUSE_FILTER_PASS
 		f.add_child(d)

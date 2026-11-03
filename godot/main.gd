@@ -21,6 +21,7 @@ var _distancia := 2.6
 var _foco := Vector3(0.0, FOCO_Y, 0.0)
 var _derecho_arrastro := false
 var _derecho_presionado := false
+var _arrastrando_vista := false
 var _soplando: Pozo
 var _reloj_soplo := 0.0
 var _chispazos: Array[Dictionary] = []
@@ -260,8 +261,12 @@ func _unhandled_input(ev: InputEvent) -> void:
 	if ev is InputEventMouseButton:
 		if ev.button_index == MOUSE_BUTTON_LEFT:
 			if ev.pressed:
+				# Arrastrar desde el suelo vacío gira la cámara (así se maneja con un dedo).
+				var suelo: Variant = _punto_en_suelo(ev.position)
+				_arrastrando_vista = suelo == null or _pozo_en(suelo) == null
 				_clic(ev.position)
 			else:
+				_arrastrando_vista = false
 				_soplando = null
 		elif ev.button_index == MOUSE_BUTTON_RIGHT:
 			if ev.pressed:
@@ -277,11 +282,24 @@ func _unhandled_input(ev: InputEvent) -> void:
 		elif ev.pressed and ev.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			_distancia = minf(12.0, _distancia + 0.25)
 			_ubicar_camara()
-	elif ev is InputEventMouseMotion and _derecho_presionado:
+	elif ev is InputEventMouseMotion and (_derecho_presionado or _arrastrando_vista):
 		_derecho_arrastro = true
-		_orbita.x -= ev.relative.x * 0.006
-		_orbita.y = clampf(_orbita.y + ev.relative.y * 0.004, 0.12, 1.25)
-		_ubicar_camara()
+		_girar(ev.relative)
+	elif ev is InputEventMagnifyGesture:
+		_acercar(1.0 / ev.factor)
+	elif ev is InputEventPanGesture:
+		_girar(ev.delta * 6.0)
+
+
+func _girar(rel: Vector2) -> void:
+	_orbita.x -= rel.x * 0.006
+	_orbita.y = clampf(_orbita.y + rel.y * 0.004, 0.12, 1.25)
+	_ubicar_camara()
+
+
+func _acercar(factor: float) -> void:
+	_distancia = clampf(_distancia * factor, 1.6, 12.0)
+	_ubicar_camara()
 
 
 func _tecla(k: int) -> void:
