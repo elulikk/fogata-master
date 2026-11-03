@@ -438,6 +438,13 @@ func _prueba_automatica(prefijo: String) -> void:
 	print("PAUSA calor antes=%.2f despues=%.2f pausado=%d arbol_de_escena=%s" % [antes, d.calor, juego.pausado, get_tree().paused])
 	await _capturar(prefijo + "-2-pyroshop.png")
 	ui.cerrar()
+	ui.abrir("menu")
+	await _esperar(0.4)
+	await _capturar(prefijo + "-2b-menu.png")
+	ui.mostrar_amanecer({"exito": true, "ceniza": 3, "punto": true, "calor": 1234.0, "proporcion": 0.82})
+	await _esperar(0.4)
+	await _capturar(prefijo + "-2c-amanecer.png")
+	ui.cerrar()
 
 	d.unlocked.habilidades = true
 	d.level = 9

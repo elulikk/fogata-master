@@ -2,12 +2,24 @@ class_name Ui
 extends CanvasLayer
 # Toda la interfaz: HUD, pila de leña, herramientas y ventanas. Lee el estado y le pide cosas a `juego`.
 # Cualquier ventana abierta pausa el juego.
+#
+# Distribución de la pantalla:
+#   arriba izquierda: calor, nivel y objetivo · arriba al centro: clima, noche y avisos · arriba derecha: menú
+#   abajo izquierda: pila de leña · abajo al centro: pista y herramientas · abajo derecha: ventanas del juego
 
 signal mano_cambia(tipo: String, id: String)
 signal sonar(nombre: String)
 
 const CENIZA_PIDE_RASTRILLO := 0.9
+const MARGEN := 14
 const VENTANAS_TECLA := {KEY_S: "pyroshop", KEY_C: "construir", KEY_H: "arbol", KEY_A: "cenizas"}
+# Los botones de abajo a la derecha. Para sumar una ventana: una entrada acá, una en VENTANAS_TECLA y su caso en _crear_ventana.
+const ACCIONES := [
+	{"id": "pyroshop", "icono": "🛒", "nombre": "Pyroshop"},
+	{"id": "construir", "icono": "🔨", "nombre": "Construir"},
+	{"id": "arbol", "icono": "🌳", "nombre": "Habilidades"},
+	{"id": "cenizas", "icono": "🪦", "nombre": "Cenizas"},
+]
 
 var juego: Juego
 var sonidos: Sonidos
@@ -16,9 +28,13 @@ var mano_id := "pino_rama"
 
 var _raiz: Control
 var _calor: Label
+var _calor_prev := 0.0
 var _ritmo: Label
 var _nivel: Label
+var _nivel_prev := 0
+var _puntos: Label
 var _barra_nivel: ProgressBar
+var _objetivo_caja: Control
 var _objetivo: Label
 var _pronostico: Label
 var _noche: Label
@@ -29,12 +45,16 @@ var _pila: GridContainer
 var _pila_firma := ""
 var _celdas := {}
 var _herramientas := {}
+var _nombres_h := {}
 var _acciones := {}
+var _insignias := {}
 var _ayudantes: Label
 var _velo: ColorRect
 var _ventana: Ventana
 var _nombre_ventana := ""
 var _reloj := 0.0
+# Aspecto del botón elegido en la mano.
+var _sel: StyleBoxFlat = Tema.caja(Color(0.36, 0.21, 0.08), Tema.ORO, 2, 8, 6.0, 3.0, 6)
 
 
 func _init(j: Juego, s: Sonidos) -> void:
@@ -51,110 +71,138 @@ func _ready() -> void:
 	add_child(_raiz)
 	_crear_hud()
 	_crear_pila()
-	_crear_herramientas()
+	_crear_abajo()
 	_crear_acciones()
 	_velo = ColorRect.new()
-	_velo.color = Color(0.0, 0.0, 0.0, 0.55)
+	_velo.color = Color(0.02, 0.01, 0.0, 0.62)
 	_velo.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_velo.visible = false
 	_raiz.add_child(_velo)
 
 
-func _ancla(c: Control, preset: int) -> void:
-	c.set_anchors_and_offsets_preset(preset, Control.PRESET_MODE_MINSIZE, 12)
+# Fija un contenedor a una esquina o borde, con margen. Crece hacia adentro de la pantalla.
+func _ancla(c: Control, preset: int, crece_h := Control.GROW_DIRECTION_END, crece_v := Control.GROW_DIRECTION_END) -> void:
+	c.set_anchors_and_offsets_preset(preset, Control.PRESET_MODE_MINSIZE, MARGEN)
+	c.grow_horizontal = crece_h
+	c.grow_vertical = crece_v
+
+
+# Una pastilla de texto dentro de `padre`; devuelve la etiqueta (su padre es la pastilla).
+func _pastilla_en(padre: Control, tam: int, color := Tema.TEXTO) -> Label:
+	var p := Tema.pastilla("", color, tam)
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	p.visible = false
+	padre.add_child(p)
+	return Tema.texto_de(p)
+
+
+func _ver(l: Label, visible_: bool) -> void:
+	l.get_parent().visible = visible_
 
 
 func _crear_hud() -> void:
+	# Arriba a la izquierda: calor, nivel y objetivo.
 	var izq := VBoxContainer.new()
-	izq.position = Vector2(14, 10)
-	izq.custom_minimum_size.x = 300
+	izq.add_theme_constant_override("separation", 6)
+	izq.custom_minimum_size.x = 310
 	izq.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(izq)
+	var tarjeta := PanelContainer.new()
+	tarjeta.theme_type_variation = "Hud"
+	izq.add_child(tarjeta)
+	var caja := VBoxContainer.new()
+	caja.add_theme_constant_override("separation", 2)
+	tarjeta.add_child(caja)
 	var fila := HBoxContainer.new()
-	izq.add_child(fila)
-	fila.add_child(Tema.con_contorno(Tema.etiqueta("$", 34, Tema.CALOR)))
-	_calor = Tema.con_contorno(Tema.etiqueta("0", 34))
+	fila.add_theme_constant_override("separation", 6)
+	caja.add_child(fila)
+	fila.add_child(Tema.etiqueta("🔥", 30))
+	_calor = Tema.etiqueta("0", 38, Tema.TEXTO, true)
+	_calor.tooltip_text = "Calor: lo que ganás y gastás en Pyroshop."
+	_calor.mouse_filter = Control.MOUSE_FILTER_PASS
 	fila.add_child(_calor)
-	_ritmo = Tema.con_contorno(Tema.etiqueta("+0 /s", 16, Tema.CALOR))
-	izq.add_child(_ritmo)
-	_nivel = Tema.con_contorno(Tema.etiqueta("Nivel 1", 15))
-	izq.add_child(_nivel)
-	_barra_nivel = _barra(Tema.CALOR)
-	izq.add_child(_barra_nivel)
-	_objetivo = Tema.con_contorno(Tema.etiqueta("", 14, Tema.TEXTO))
+	var vacio := Control.new()
+	vacio.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vacio.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fila.add_child(vacio)
+	var ritmo := Tema.pastilla("+0.0 /s", Tema.CALOR, 15)
+	ritmo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_ritmo = Tema.texto_de(ritmo)
+	fila.add_child(ritmo)
+	var fila2 := HBoxContainer.new()
+	caja.add_child(fila2)
+	_nivel = Tema.etiqueta("Nivel 1", 14, Tema.TENUE, true)
+	_nivel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fila2.add_child(_nivel)
+	var puntos := Tema.pastilla("", Tema.ORO, 12)
+	puntos.visible = false
+	_puntos = Tema.texto_de(puntos)
+	fila2.add_child(puntos)
+	_barra_nivel = Tema.barra(Tema.CALOR, 8)
+	caja.add_child(_barra_nivel)
+	_objetivo_caja = PanelContainer.new()
+	(_objetivo_caja as PanelContainer).theme_type_variation = "Hud"
+	_objetivo = Tema.etiqueta("", 13, Tema.TEXTO)
 	_objetivo.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_objetivo.custom_minimum_size.x = 300
-	izq.add_child(_objetivo)
+	_objetivo_caja.add_child(_objetivo)
+	_objetivo_caja.visible = false
+	izq.add_child(_objetivo_caja)
+	_ancla(izq, Control.PRESET_TOP_LEFT)
 
+	# Arriba al centro: clima, noche y avisos.
 	var centro := VBoxContainer.new()
-	centro.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	centro.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	centro.position.y = 10
 	centro.custom_minimum_size.x = 560
-	centro.alignment = BoxContainer.ALIGNMENT_BEGIN
+	centro.add_theme_constant_override("separation", 5)
 	centro.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(centro)
-	_pronostico = _centrado(16)
-	centro.add_child(_pronostico)
-	_noche = _centrado(16)
-	centro.add_child(_noche)
-	_barra_frio = _barra(Color(0.4, 0.65, 1.0))
+	_pronostico = _pastilla_en(centro, 15)
+	_noche = _pastilla_en(centro, 15)
+	_barra_frio = Tema.barra(Tema.FRIO, 10)
+	_barra_frio.custom_minimum_size.x = 320
+	_barra_frio.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_barra_frio.tooltip_text = "El frío sube si el fuego rinde menos de lo que pide la noche."
 	_barra_frio.visible = false
 	centro.add_child(_barra_frio)
 	_avisos = VBoxContainer.new()
+	_avisos.add_theme_constant_override("separation", 4)
 	_avisos.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	centro.add_child(_avisos)
-	_pista = _centrado(16)
-	_pista.add_theme_color_override("font_color", Color(1.0, 0.85, 0.55))
-	centro.add_child(_pista)
+	_ancla(centro, Control.PRESET_CENTER_TOP, Control.GROW_DIRECTION_BOTH)
 
-	var der := HBoxContainer.new()
-	der.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	der.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	der.position = Vector2(-14, 10)
+	# Arriba a la derecha: menú y ayudantes.
+	var der := VBoxContainer.new()
+	der.add_theme_constant_override("separation", 6)
+	der.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(der)
-	der.add_child(Tema.boton("⚙️ Menú", func() -> void: abrir("menu")))
-
-
-func _centrado(tam: int) -> Label:
-	var l := Tema.con_contorno(Tema.etiqueta("", tam))
-	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	l.visible = false
-	return l
-
-
-func _barra(color: Color) -> ProgressBar:
-	var b := ProgressBar.new()
-	b.show_percentage = false
-	b.custom_minimum_size.y = 8
-	b.max_value = 1.0
-	b.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var fondo := StyleBoxFlat.new()
-	fondo.bg_color = Color(0, 0, 0, 0.6)
-	fondo.set_corner_radius_all(3)
-	var lleno := StyleBoxFlat.new()
-	lleno.bg_color = color
-	lleno.set_corner_radius_all(3)
-	b.add_theme_stylebox_override("background", fondo)
-	b.add_theme_stylebox_override("fill", lleno)
-	return b
+	var menu := Tema.boton("⚙", func() -> void: abrir("menu"))
+	menu.custom_minimum_size = Vector2(46, 40)
+	menu.add_theme_font_size_override("font_size", 20)
+	menu.tooltip_text = "Menú (Esc)"
+	menu.size_flags_horizontal = Control.SIZE_SHRINK_END
+	der.add_child(menu)
+	_ayudantes = _pastilla_en(der, 12, Tema.TENUE)
+	_ayudantes.get_parent().size_flags_horizontal = Control.SIZE_SHRINK_END
+	_ancla(der, Control.PRESET_TOP_RIGHT, Control.GROW_DIRECTION_BEGIN)
 
 
 # --- Pila de leña: una fila por especie, una columna por corte. Tocar una celda la pone en la mano. ---
 
 func _crear_pila() -> void:
 	var marco := PanelContainer.new()
-	marco.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	marco.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	marco.position = Vector2(14, -14)
+	marco.theme_type_variation = "Hud"
 	_raiz.add_child(marco)
 	var caja := VBoxContainer.new()
+	caja.add_theme_constant_override("separation", 4)
 	marco.add_child(caja)
-	caja.add_child(Tema.etiqueta("LEÑA  (1 · 2 · 3)", 13, Tema.TENUE))
+	var titulo := HBoxContainer.new()
+	caja.add_child(titulo)
+	titulo.add_child(Tema.etiqueta("🪵 LEÑA", 13, Tema.ORO, true))
 	_pila = GridContainer.new()
 	_pila.columns = 1 + Maderas.ORDEN_CORTES.size()
+	_pila.add_theme_constant_override("h_separation", 5)
+	_pila.add_theme_constant_override("v_separation", 4)
 	caja.add_child(_pila)
+	_ancla(marco, Control.PRESET_BOTTOM_LEFT, Control.GROW_DIRECTION_END, Control.GROW_DIRECTION_BEGIN)
 
 
 func _filas_pila() -> Array:
@@ -169,24 +217,45 @@ func _filas_pila() -> Array:
 	return filas
 
 
+# El nombre de una fila con su muestra de color, para reconocer la especie de un vistazo.
+func _nombre_fila(sp: String) -> Control:
+	var f := HBoxContainer.new()
+	f.add_theme_constant_override("separation", 6)
+	var color: Color = Color("6b4a2b") if sp == "pina" else Maderas.ESPECIES[sp].color
+	var muestra := Panel.new()
+	muestra.custom_minimum_size = Vector2(10, 10)
+	muestra.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	muestra.add_theme_stylebox_override("panel", Tema.caja(color.lightened(0.15), color.lightened(0.45), 1, 5, 0.0, 0.0))
+	f.add_child(muestra)
+	f.add_child(Tema.etiqueta("Piñas" if sp == "pina" else Maderas.ESPECIES[sp].nombre, 13, Tema.TEXTO))
+	return f
+
+
 func _armar_pila(filas: Array) -> void:
 	for h in _pila.get_children():
 		_pila.remove_child(h)
 		h.queue_free()
 	_celdas.clear()
-	_pila.add_child(Tema.etiqueta("", 12))
-	for corte: String in Maderas.ORDEN_CORTES:
-		_pila.add_child(Tema.etiqueta(Maderas.CORTES[corte].nombre, 12, Tema.TENUE))
+	_pila.add_child(Control.new())
+	for i in Maderas.ORDEN_CORTES.size():
+		var cab := HBoxContainer.new()
+		cab.alignment = BoxContainer.ALIGNMENT_CENTER
+		cab.add_theme_constant_override("separation", 4)
+		cab.add_child(Tema.etiqueta(Maderas.CORTES[Maderas.ORDEN_CORTES[i]].nombre, 12, Tema.TENUE))
+		cab.add_child(Tema.tecla(str(i + 1)))
+		_pila.add_child(cab)
 	for sp: String in filas:
-		_pila.add_child(Tema.etiqueta("Piñas" if sp == "pina" else Maderas.ESPECIES[sp].nombre, 13, Tema.TENUE))
+		_pila.add_child(_nombre_fila(sp))
 		for corte: String in Maderas.ORDEN_CORTES:
 			if sp == "pina" and corte != "rama":
-				_pila.add_child(Tema.etiqueta("", 12))
+				_pila.add_child(Control.new())
 				continue
 			var clave := "pina" if sp == "pina" else Maderas.clave(sp, corte)
 			var w := Maderas.de(clave)
 			var b := Tema.boton("0", elegir_madera.bind(clave))
-			b.custom_minimum_size = Vector2(58, 26)
+			b.custom_minimum_size = Vector2(64, 30)
+			b.add_theme_font_size_override("font_size", 15)
+			b.add_theme_font_override("font", Tema.fuente_fuerte())
 			b.tooltip_text = "%s\n%s\n%s" % [w.nombre, w.desc, w.pista]
 			_pila.add_child(b)
 			_celdas[clave] = b
@@ -222,44 +291,113 @@ func elegir_herramienta(id: String) -> void:
 	_refrescar_mano()
 
 
+# El botón que tiene el objeto en la mano se ve dorado.
+func _marcar(b: Button, elegido: bool) -> void:
+	for k in ["normal", "hover", "pressed", "disabled"]:
+		if elegido:
+			b.add_theme_stylebox_override(k, _sel)
+		else:
+			b.remove_theme_stylebox_override(k)
+
+
 func _refrescar_mano() -> void:
 	for k: String in _celdas:
-		_celdas[k].modulate = Color(1.5, 1.25, 0.7) if mano_tipo == "madera" and mano_id == k else Color.WHITE
+		_marcar(_celdas[k], mano_tipo == "madera" and mano_id == k)
 	for id: String in _herramientas:
-		_herramientas[id].modulate = Color(1.5, 1.25, 0.7) if mano_tipo == "herramienta" and mano_id == id else Color.WHITE
+		_marcar(_herramientas[id], mano_tipo == "herramienta" and mano_id == id)
 
 
-func _crear_herramientas() -> void:
+# --- Abajo al centro: la pista del momento y las herramientas ---
+
+func _crear_abajo() -> void:
+	var caja := VBoxContainer.new()
+	caja.add_theme_constant_override("separation", 8)
+	caja.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_raiz.add_child(caja)
+	_pista = _pastilla_en(caja, 15, Tema.ORO)
 	var fila := HBoxContainer.new()
-	fila.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	fila.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	fila.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	fila.position.y = -14
-	_raiz.add_child(fila)
+	fila.add_theme_constant_override("separation", 6)
+	fila.alignment = BoxContainer.ALIGNMENT_CENTER
+	fila.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	caja.add_child(fila)
 	for h: Dictionary in Herramientas.TODAS:
-		var b := Tema.boton(h.nombre, elegir_herramienta.bind(h.id))
-		b.custom_minimum_size = Vector2(110, 40)
-		b.tooltip_text = h.desc
+		var b := _boton_herramienta(h)
 		fila.add_child(b)
 		_herramientas[h.id] = b
+	_ancla(caja, Control.PRESET_CENTER_BOTTOM, Control.GROW_DIRECTION_BOTH, Control.GROW_DIRECTION_BEGIN)
 
+
+func _boton_herramienta(h: Dictionary) -> Button:
+	var b := Tema.boton("", elegir_herramienta.bind(h.id))
+	b.custom_minimum_size = Vector2(104, 58)
+	b.tooltip_text = h.desc
+	var margen := MarginContainer.new()
+	margen.set_anchors_preset(Control.PRESET_FULL_RECT)
+	margen.add_theme_constant_override("margin_left", 8)
+	margen.add_theme_constant_override("margin_right", 6)
+	margen.add_theme_constant_override("margin_top", 4)
+	margen.add_theme_constant_override("margin_bottom", 4)
+	Tema.pasivo(margen)
+	b.add_child(margen)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 0)
+	Tema.pasivo(v)
+	margen.add_child(v)
+	var arriba := HBoxContainer.new()
+	Tema.pasivo(arriba)
+	v.add_child(arriba)
+	var icono := Tema.etiqueta(h.icono, 21)
+	icono.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	arriba.add_child(Tema.pasivo(icono))
+	var tecla := Tema.tecla(OS.get_keycode_string(h.tecla))
+	tecla.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	arriba.add_child(tecla)
+	var nombre := Tema.etiqueta(h.nombre, 13, Tema.TEXTO, true)
+	v.add_child(Tema.pasivo(nombre))
+	_nombres_h[h.id] = nombre
+	return b
+
+
+# --- Abajo a la derecha: las ventanas del juego ---
 
 func _crear_acciones() -> void:
 	var caja := VBoxContainer.new()
-	caja.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	caja.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	caja.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	caja.position = Vector2(-14, -14)
+	caja.add_theme_constant_override("separation", 6)
+	caja.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(caja)
-	_ayudantes = Tema.con_contorno(Tema.etiqueta("", 13, Tema.TENUE))
-	caja.add_child(_ayudantes)
-	for accion: Array in [["pyroshop", "🛒 Pyroshop (S)"], ["construir", "🔨 Construir (C)"], ["arbol", "🌳 Habilidades (H)"], ["cenizas", "🪦 Cenizas (A)"]]:
-		var b := Tema.boton(accion[1], abrir.bind(accion[0]))
-		b.custom_minimum_size = Vector2(190, 36)
-		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	for a: Dictionary in ACCIONES:
+		var b := Tema.boton("", abrir.bind(a.id))
+		b.custom_minimum_size = Vector2(210, 40)
 		b.visible = false
+		var margen := MarginContainer.new()
+		margen.set_anchors_preset(Control.PRESET_FULL_RECT)
+		margen.add_theme_constant_override("margin_left", 10)
+		margen.add_theme_constant_override("margin_right", 8)
+		Tema.pasivo(margen)
+		b.add_child(margen)
+		var fila := HBoxContainer.new()
+		fila.add_theme_constant_override("separation", 8)
+		Tema.pasivo(fila)
+		margen.add_child(fila)
+		var icono := Tema.etiqueta(a.icono, 18)
+		icono.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		fila.add_child(Tema.pasivo(icono))
+		var nombre := Tema.etiqueta(a.nombre, 14, Tema.TEXTO, true)
+		nombre.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		nombre.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		fila.add_child(Tema.pasivo(nombre))
+		var insignia := Tema.pastilla("", Tema.ORO, 12)
+		insignia.visible = false
+		fila.add_child(insignia)
+		_insignias[a.id] = insignia
+		var tecla: Variant = VENTANAS_TECLA.find_key(a.id)
+		if tecla != null:
+			var cap := Tema.tecla(OS.get_keycode_string(int(tecla)))
+			cap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			fila.add_child(cap)
 		caja.add_child(b)
-		_acciones[accion[0]] = b
+		_acciones[a.id] = b
+	_ancla(caja, Control.PRESET_BOTTOM_RIGHT, Control.GROW_DIRECTION_BEGIN, Control.GROW_DIRECTION_BEGIN)
 
 
 # --- Ventanas ---
@@ -269,16 +407,23 @@ func hay_ventana() -> bool:
 
 
 func abrir(nombre: String) -> void:
-	if not _acciones.has(nombre) or _acciones[nombre].visible or true:
-		cerrar()
-		_ventana = _crear_ventana(nombre)
-		_nombre_ventana = nombre
-		_ventana.cerrar.connect(cerrar)
-		_velo.visible = true
-		_raiz.add_child(_ventana)
-		_ventana.refrescar()
-		juego.pausar(true)
-		sonar.emit("click")
+	_poner(_crear_ventana(nombre), nombre)
+	_ventana.refrescar()
+	sonar.emit("click")
+
+
+# Deja `v` como la única ventana abierta: veló, pausa y fundido.
+func _poner(v: Ventana, nombre: String) -> void:
+	if _ventana != null:
+		_ventana.queue_free()
+	_ventana = v
+	_nombre_ventana = nombre
+	v.cerrar.connect(cerrar)
+	_velo.visible = true
+	_velo.modulate.a = 0.0
+	_velo.create_tween().tween_property(_velo, "modulate:a", 1.0, 0.15)
+	_raiz.add_child(v)
+	juego.pausar(true)
 
 
 func cerrar() -> void:
@@ -316,7 +461,7 @@ func _tienda(titulo: String, tab: String) -> VentanaTabla:
 	return VentanaTabla.new(titulo, func(v: VentanaTabla) -> Array:
 		var e := juego.estado
 		var d: Dictionary = e.d
-		v.poner_info("Calor: $ %s" % Tema.numero(d.calor))
+		v.poner_info("🔥 %s de calor para gastar" % Tema.numero(d.calor))
 		var fuera := []
 		for it: Dictionary in Tienda.todos(d):
 			if it.tab != tab or not it.requiere.call(d):
@@ -332,7 +477,7 @@ func _tienda(titulo: String, tab: String) -> VentanaTabla:
 			elif not it.get("mercado", false) and tope < 99:
 				fila["dato"] = "%d/%d" % [nivel, tope]
 			if lleno:
-				fila["texto_boton"] = "Listo"
+				fila["texto_boton"] = "✔ Listo"
 			else:
 				fila["precio"] = "$ %s" % Tema.numero(p)
 				fila["puede"] = d.calor >= p and motivo.is_empty()
@@ -347,13 +492,13 @@ func _ventana_cenizas() -> VentanaTabla:
 	var ventana := VentanaTabla.new("🪦 Cenizas", func(v: VentanaTabla) -> Array:
 		var e := juego.estado
 		var meta: Dictionary = e.d.meta
-		v.poner_info("Ceniza: %d · Amaneceres: %d. Renacer reinicia la partida y conserva esto." % [meta.ash, e.d.night.dawns])
+		v.poner_info("🪦 %d de ceniza · %d amaneceres. Renacer reinicia la partida y conserva esto." % [meta.ash, e.d.night.dawns])
 		var fuera := []
 		for m: Dictionary in Cenizas.MEJORAS:
 			var nivel := int(meta.upgrades.get(m.id, 0))
 			var fila := {"icono": m.icono, "nombre": m.nombre, "desc": m.desc, "dato": "%d/%d" % [nivel, m.max]}
 			if nivel >= m.max:
-				fila["texto_boton"] = "Listo"
+				fila["texto_boton"] = "✔ Listo"
 			else:
 				var costo := Cenizas.costo(m, nivel)
 				fila["precio"] = "%d 🪦" % costo
@@ -365,9 +510,10 @@ func _ventana_cenizas() -> VentanaTabla:
 						v.refrescar()
 			fuera.append(fila)
 		return fuera)
-	var renacer := Tema.boton("Renacer (+%d)" % juego.estado.ceniza_posible(), func() -> void:
+	var al_renacer := func() -> void:
 		cerrar()
-		juego.renacer())
+		juego.renacer()
+	var renacer := Tema.boton("Renacer (+%d)" % juego.estado.ceniza_posible(), al_renacer, "Principal")
 	renacer.disabled = not juego.estado.puede_renacer()
 	renacer.tooltip_text = "Hace falta sobrevivir una noche."
 	ventana.poner_extra(renacer)
@@ -375,39 +521,66 @@ func _ventana_cenizas() -> VentanaTabla:
 
 
 func _ventana_logros() -> VentanaTabla:
-	return VentanaTabla.new("🏆 Logros", func(_v: VentanaTabla) -> Array:
+	var filas := func(_v: VentanaTabla) -> Array:
 		var fuera := []
 		for a: Dictionary in Logros.lista():
 			var hecho: bool = juego.estado.d.meta.achievements.get(a.id, false)
-			fuera.append({"icono": a.icono, "nombre": a.nombre, "desc": "%s (%s)" % [a.desc, a.premio], "texto_boton": "✔" if hecho else ""})
-		return fuera)
+			fuera.append({"icono": a.icono, "nombre": a.nombre, "desc": "%s (%s)" % [a.desc, a.premio], "texto_boton": "✔" if hecho else "", "pendiente": not hecho})
+		return fuera
+	return VentanaTabla.new("🏆 Logros", filas, Vector2(760, 540))
+
+
+func _seccion(v: Ventana, texto: String) -> void:
+	v.cuerpo.add_child(Tema.etiqueta(texto.to_upper(), 11, Tema.APAGADO, true))
+
+
+func _ancho(b: Button) -> Button:
+	b.custom_minimum_size.y = 38
+	return b
 
 
 func _ventana_menu() -> Ventana:
-	var v := Ventana.new("⚙️ Menú", Vector2(420, 300))
+	var v := Ventana.new("⚙️ Menú", Vector2(440, 0))
 	var aj: Dictionary = juego.estado.d.ajustes
+	_seccion(v, "Sonido")
 	var fila := HBoxContainer.new()
-	fila.add_child(Tema.etiqueta("Volumen"))
+	fila.add_theme_constant_override("separation", 10)
+	fila.add_child(Tema.etiqueta("🔊", 18))
 	var vol := HSlider.new()
 	vol.min_value = 0.0
 	vol.max_value = 1.0
 	vol.step = 0.05
 	vol.value = aj.volumen
 	vol.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vol.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var cifra := Tema.etiqueta("%d%%" % roundi(aj.volumen * 100.0), 13, Tema.TENUE, true)
+	cifra.custom_minimum_size.x = 40
 	vol.value_changed.connect(func(x: float) -> void:
 		aj.volumen = x
+		cifra.text = "%d%%" % roundi(x * 100.0)
 		sonidos.ajustes(aj.volumen, aj.mudo))
 	fila.add_child(vol)
+	fila.add_child(cifra)
 	v.cuerpo.add_child(fila)
-	var mudo := CheckBox.new()
-	mudo.text = "Silenciar"
+	var mudo := _ancho(Tema.boton("", func() -> void: pass))
+	mudo.toggle_mode = true
 	mudo.button_pressed = aj.mudo
+	var rotular := func(x: bool) -> void:
+		mudo.text = "🔇  Silenciado" if x else "🔊  Con sonido"
+	rotular.call(aj.mudo)
 	mudo.toggled.connect(func(x: bool) -> void:
 		aj.mudo = x
+		rotular.call(x)
 		sonidos.ajustes(aj.volumen, aj.mudo))
 	v.cuerpo.add_child(mudo)
-	v.cuerpo.add_child(Tema.boton("🏆 Logros", func() -> void: abrir("logros")))
-	var nueva := Tema.boton("Partida nueva…", func() -> void: pass)
+	v.cuerpo.add_child(HSeparator.new())
+	_seccion(v, "Partida")
+	v.cuerpo.add_child(_ancho(Tema.boton("🏆  Logros", func() -> void: abrir("logros"))))
+	v.cuerpo.add_child(_ancho(Tema.boton("💾  Guardar y salir", func() -> void:
+		juego.estado.guardar()
+		get_tree().quit())))
+	var nueva := _ancho(Tema.boton("Partida nueva…", func() -> void: pass))
+	nueva.add_theme_color_override("font_color", Tema.MAL)
 	nueva.pressed.connect(func() -> void:
 		if nueva.text == "Partida nueva…":
 			nueva.text = "¿Seguro? Se borra todo"
@@ -415,64 +588,75 @@ func _ventana_menu() -> Ventana:
 		cerrar()
 		juego.partida_nueva())
 	v.cuerpo.add_child(nueva)
-	v.cuerpo.add_child(Tema.boton("Guardar y salir", func() -> void:
-		juego.estado.guardar()
-		get_tree().quit()))
+	v.cuerpo.add_child(HSeparator.new())
+	var teclas := Tema.etiqueta("Teclas: 1 · 2 · 3 elegir corte · F P R G herramientas · S C H A ventanas · Esc menú", 12, Tema.APAGADO)
+	teclas.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.cuerpo.add_child(teclas)
 	return v
 
 
 func _ventana_inicio() -> Ventana:
-	var v := Ventana.new("🔥 Fogata Master", Vector2(380, 200))
+	var v := Ventana.new("🔥 Fogata Master", Vector2(400, 0), false)
 	var hay := FileAccess.file_exists(Estado.ARCHIVO)
+	var lema := Tema.etiqueta("Mantené el fuego vivo hasta que amanezca.", 14, Tema.TENUE)
+	lema.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.cuerpo.add_child(lema)
 	if hay:
-		v.cuerpo.add_child(Tema.boton("Continuar", cerrar))
-	v.cuerpo.add_child(Tema.boton("Partida nueva" if hay else "Empezar", func() -> void:
+		var seguir := _ancho(Tema.boton("Continuar", cerrar, "Principal"))
+		v.cuerpo.add_child(seguir)
+	var empezar := func() -> void:
 		cerrar()
 		if hay:
-			juego.partida_nueva()))
+			juego.partida_nueva()
+	v.cuerpo.add_child(_ancho(Tema.boton("Partida nueva" if hay else "Empezar", empezar, "" if hay else "Principal")))
 	return v
 
 
 func mostrar_amanecer(info: Dictionary) -> void:
-	abrir("menu")
-	_ventana.queue_free()
-	var v := Ventana.new("🌅 Amaneció" if info.exito else "🥶 El frío ganó esta noche", Vector2(420, 180))
+	var v := Ventana.new("🌅 Amaneció" if info.exito else "🥶 El frío ganó esta noche", Vector2(440, 0))
 	if info.exito:
-		v.cuerpo.add_child(Tema.etiqueta("+%d de ceniza" % info.ceniza, 16, Tema.BIEN))
+		v.cuerpo.add_child(Tema.etiqueta("+%d de ceniza" % info.ceniza, 20, Tema.BIEN, true))
 	if info.punto:
-		v.cuerpo.add_child(Tema.etiqueta("+1 punto de habilidad por una buena noche", 15, Tema.BIEN))
-	v.cuerpo.add_child(Tema.etiqueta("Calor de la noche: %s · En meta: %d%%" % [Tema.numero(info.calor), roundi(info.proporcion * 100.0)]))
-	v.cuerpo.add_child(Tema.boton("Seguir", cerrar))
-	v.cerrar.connect(cerrar)
-	_ventana = v
-	_raiz.add_child(v)
+		v.cuerpo.add_child(Tema.etiqueta("● +1 punto de habilidad por una buena noche", 15, Tema.ORO, true))
+	v.cuerpo.add_child(Tema.etiqueta("Calor de la noche: %s" % Tema.numero(info.calor), 14))
+	var en_meta := Tema.etiqueta("En meta: %d%% de la noche" % roundi(info.proporcion * 100.0), 13, Tema.TENUE)
+	v.cuerpo.add_child(en_meta)
+	var barra := Tema.barra(Tema.BIEN if info.exito else Tema.FRIO, 10)
+	barra.value = clampf(info.proporcion, 0.0, 1.0)
+	v.cuerpo.add_child(barra)
+	v.cuerpo.add_child(_ancho(Tema.boton("Seguir", cerrar, "Principal")))
+	_poner(v, "amanecer")
 
 
 # --- Avisos y texto flotante ---
 
 func avisar(texto: String, tipo := "") -> void:
-	var color: Color = {"malo": Tema.MAL, "hito": Color(1.0, 0.85, 0.5), "logro": Tema.BIEN}.get(tipo, Tema.TEXTO)
-	var l := _centrado(16)
-	l.text = texto
-	l.visible = true
-	l.add_theme_color_override("font_color", color)
-	_avisos.add_child(l)
+	var color: Color = {"malo": Tema.MAL, "hito": Tema.ORO, "logro": Tema.BIEN}.get(tipo, Tema.TEXTO)
+	var p := Tema.pastilla(texto, color, 15)
+	p.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	var l := Tema.texto_de(p)
+	l.add_theme_font_override("font", ThemeDB.fallback_font)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = minf(520.0, ThemeDB.fallback_font.get_string_size(texto, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 4.0)
+	_avisos.add_child(p)
 	while _avisos.get_child_count() > 4:
 		_avisos.get_child(0).free()
-	var t := l.create_tween()
+	p.modulate.a = 0.0
+	var t := p.create_tween()
+	t.tween_property(p, "modulate:a", 1.0, 0.18)
 	t.tween_interval(4.5)
-	t.tween_property(l, "modulate:a", 0.0, 0.6)
-	t.tween_callback(l.queue_free)
+	t.tween_property(p, "modulate:a", 0.0, 0.6)
+	t.tween_callback(p.queue_free)
 
 
 func flotar(pos: Vector2, texto: String, color := Tema.TEXTO) -> void:
-	var l := Tema.con_contorno(Tema.etiqueta(texto, 16, color))
+	var l := Tema.con_contorno(Tema.etiqueta(texto, 18, color, true))
 	l.position = pos - Vector2(30, 10)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(l)
 	var t := l.create_tween().set_parallel()
-	t.tween_property(l, "position:y", pos.y - 50.0, 1.1)
-	t.tween_property(l, "modulate:a", 0.0, 1.1)
+	t.tween_property(l, "position:y", pos.y - 56.0, 1.1).set_ease(Tween.EASE_OUT)
+	t.tween_property(l, "modulate:a", 0.0, 1.1).set_delay(0.3)
 	t.chain().tween_callback(l.queue_free)
 
 
@@ -490,21 +674,33 @@ func _refrescar_hud() -> void:
 	var e := juego.estado
 	var d: Dictionary = e.d
 	var abierto: Dictionary = d.unlocked
-	_calor.text = Tema.numero(d.calor)
+	var calor: float = d.calor
+	_calor.text = Tema.numero(calor)
+	if calor - _calor_prev > maxf(2.0, e.ritmo * 0.6):
+		Tema.golpe(_calor, 1.12)
+	_calor_prev = calor
 	_ritmo.text = "+%.1f /s" % e.ritmo
-	_nivel.text = "Nivel %d" % d.level + ("  ·  %d puntos" % Habilidades.puntos(d) if abierto.get("habilidades", false) and Habilidades.puntos(d) > 0 else "")
+	var pts := Habilidades.puntos(d) if abierto.get("habilidades", false) else 0
+	_nivel.text = "Nivel %d" % d.level
+	if int(d.level) > _nivel_prev:
+		if _nivel_prev > 0:
+			Tema.golpe(_nivel, 1.3)
+		_nivel_prev = int(d.level)
+	_puntos.text = "● %d %s" % [pts, "punto" if pts == 1 else "puntos"]
+	_ver(_puntos, pts > 0)
 	_barra_nivel.value = Progreso.avance_nivel(d, e.mods.level_ease)
 	var obj := e.proximo_objetivo()
 	_objetivo.text = "" if obj.is_empty() else "%s %s" % [obj.icono, obj.texto]
+	_objetivo_caja.visible = not obj.is_empty()
 
 	var pron := juego.clima.pronostico()
-	_pronostico.visible = not pron.is_empty()
+	_ver(_pronostico, not pron.is_empty())
 	if not pron.is_empty():
 		var info: Dictionary = Clima.INFO[pron.tipo]
 		_pronostico.text = "%s %s %s %ds" % [info.icono, info.nombre, "en" if pron.fase == "aviso" else "por", ceili(pron.reloj)]
 	var ni := e.info_noche()
 	var hay_noche: bool = ni.fase != "off"
-	_noche.visible = hay_noche
+	_ver(_noche, hay_noche)
 	_barra_frio.visible = ni.fase == "night"
 	if hay_noche:
 		match ni.fase:
@@ -512,10 +708,11 @@ func _refrescar_hud() -> void:
 			"dusk": _noche.text = "🌇 Atardecer · la noche %d pide %.1f/s" % [ni.n, ni.meta]
 			"night": _noche.text = "🌙 Noche %d · pide %.1f/s · tenés %.1f/s · %ds" % [ni.n, ni.meta, e.ritmo, ceili(ni.resta)]
 		_barra_frio.value = d.night.cold
+		Tema.color_barra(_barra_frio, Tema.FRIO.lerp(Tema.MAL, clampf(d.night.cold, 0.0, 1.0)))
 
 	_avisos.visible = not hay_ventana()
 	_pista.text = _pista_actual()
-	_pista.visible = not _pista.text.is_empty()
+	_ver(_pista, not _pista.text.is_empty() and not hay_ventana())
 
 	var filas := _filas_pila()
 	var firma := str(filas)
@@ -530,23 +727,25 @@ func _refrescar_hud() -> void:
 		b.text = str(n)
 		b.visible = not w.cono or n > 0
 		b.disabled = n == 0 or not Tienda.corte_abierto(d, w.corte)
-	_herramientas.fosforo.text = "🔥 Fósforo ×%d (F)" % int(d.res.get("fosforo", 0))
-	_herramientas.pedernal.text = "🪨 Pedernal (P)"
-	_herramientas.fuelle.text = "🪗 Fuelle (G)"
+	var fosforos := int(d.res.get("fosforo", 0))
+	(_nombres_h.fosforo as Label).text = "Fósforo ×%d" % fosforos
+	(_nombres_h.fosforo as Label).add_theme_color_override("font_color", Tema.TEXTO if fosforos > 0 else Tema.MAL)
 	_herramientas.fuelle.visible = d.bought.get("fuelle", 0) > 0
-	_herramientas.rastrillo.text = "🧹 Rastrillo (R)"
 	_herramientas.rastrillo.visible = Herramientas.disponible(d, Herramientas.de("rastrillo"))
 
 	_acciones.pyroshop.visible = abierto.get("tienda", false)
 	_acciones.construir.visible = abierto.get("construir", false)
 	_acciones.arbol.visible = abierto.get("habilidades", false)
-	_acciones.arbol.text = "🌳 Habilidades (H)" + (" ●%d" % Habilidades.puntos(d) if Habilidades.puntos(d) > 0 else "")
 	_acciones.cenizas.visible = abierto.get("noches", false) or d.meta.totalDawns >= 1 or d.meta.prestiges >= 1
+	var insignia: PanelContainer = _insignias.arbol
+	insignia.visible = pts > 0
+	Tema.texto_de(insignia).text = "● %d" % pts
 	var ayuda := []
 	for s: Dictionary in Proveedores.lista():
 		if s.has("etiqueta") and s.nivel.call(d) > 0:
 			ayuda.append(s.etiqueta)
 	_ayudantes.text = "  ".join(ayuda)
+	_ver(_ayudantes, not ayuda.is_empty())
 
 
 func _pista_actual() -> String:
