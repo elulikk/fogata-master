@@ -14,13 +14,12 @@ export const ACHIEVEMENTS = [
   { id: 'nivel5', icon: '⭐', name: 'Aprendiz', desc: 'Llegá al nivel 5.', when: (s) => s.level >= 5, reward: { fuel: 0.01 } },
   { id: 'nivel10', icon: '🌟', name: 'Veterano', desc: 'Llegá al nivel 10.', when: (s) => s.level >= 10, reward: { fuel: 0.02 } },
   { id: 'nivel15', icon: '💫', name: 'Leyenda del fogón', desc: 'Llegá al nivel 15.', when: (s) => s.level >= 15, reward: { calor: 0.02 } },
-  { id: 'viajero', icon: '🥾', name: 'Caminante', desc: 'Hacé 10 viajes al bosque.', when: (s) => s.trips >= 10, reward: { loot: 0.02 } },
-  { id: 'explorador', icon: '🧭', name: 'Conocedor del monte', desc: 'Hacé 50 viajes al bosque.', when: (s) => s.trips >= 50, reward: { loot: 0.03 } },
-  { id: 'hallazgos', icon: '🎒', name: 'Ojo atento', desc: 'Vivé 5 eventos del bosque.', when: (s) => (s.meta.stats.forestEvents || 0) >= 5, reward: { loot: 0.02 } },
+  { id: 'patron', icon: '🪓', name: 'Patrón', desc: 'Contratá un leñador.', when: (s) => (s.bought.ayudante || 0) >= 1, reward: { loot: 0.02 } },
+  ...[[3, '🧱', 'Albañil', 'Levantá un Hogar.', { loot: 0.03 }], [5, '🔨', 'Herrero', 'Levantá una Fragua.', { calor: 0.02 }], [7, '💠', 'Maestro forjador', 'Levantá la Gran Forja.', { calor: 0.03 }]]
+    .map(([size, icon, name, desc, reward]) => ({ id: `hearth${size}`, icon, name, desc, when: (s) => s.pits.some((p) => p.size >= size), reward })),
   { id: 'cartas8', icon: '🃏', name: 'Coleccionista', desc: 'Tené 8 cartas distintas.', when: (s) => cardKinds(s) >= 8, reward: { discount: 0.01 } },
   { id: 'comprador', icon: '🛒', name: 'Cliente habitual', desc: 'Hacé 15 compras en la tienda y en construir.', when: (s) => boughtCount(s) >= 15, reward: { discount: 0.01 } },
   { id: 'dos-fogatas', icon: '🔥', name: 'Doble fuego', desc: 'Construí una segunda fogata.', when: (s) => s.pits.length >= 2, reward: { calor: 0.01 } },
-  { id: 'pozo-grande', icon: '🪨', name: 'Pozo mayor', desc: 'Agrandá una fogata al máximo.', when: (s) => s.pits.some((p) => p.size >= 3), reward: { calor: 0.01 } },
   { id: 'primer-amanecer', icon: '🌅', name: 'Primer amanecer', desc: 'Sobreviví una noche.', when: (s) => s.meta.totalDawns >= 1, reward: { ash: 0.05 } },
   { id: 'cinco-amaneceres', icon: '🌄', name: 'Noctámbulo', desc: 'Sobreviví 5 noches en total.', when: (s) => s.meta.totalDawns >= 5, reward: { ash: 0.05 } },
   { id: 'renacido', icon: '🪦', name: 'Renacido', desc: 'Hacé tu primer prestigio.', when: (s) => s.meta.prestiges >= 1, reward: { calor: 0.02 } },
@@ -31,7 +30,7 @@ export const ACHIEVEMENTS = [
 ];
 
 export const REWARD_TEXT = {
-  calor: 'calor', fuel: 'duración de la leña', loot: 'leña del bosque',
+  calor: 'calor', fuel: 'duración de la leña', loot: 'leña por entrega',
   orbs: 'chispazos', discount: 'descuento', ash: 'ceniza ganada',
 };
 

@@ -11,9 +11,9 @@ export const NIGHT = 480;
 export const FIRST_DAY_LEFT = 240;
 export const NIGHT_PHASES = { day: DAY, dusk: DUSK, night: NIGHT };
 
-const BASE_GOAL = 4.2;     // calor/s de la primera noche (≈ 2 leños de seca+tronco en un pozo agrandado)
-const GOAL_2 = 4.4;        // noche 2: una puerta, alcanzable con 1 pozo bien atendido
-const GOAL_GROWTH = 1.3;   // noches 3+: 30% más cada una
+const BASE_GOAL = 6;       // calor/s de la primera noche (una fogata agrandada y bien atendida)
+const GOAL_2 = 8;          // noche 2: una puerta, alcanzable con 1 pozo bien atendido
+const GOAL_GROWTH = 1.35;  // noches 3+: 35% más cada una
 const COLD_TIME = 70;      // s para congelarse con ritmo cero
 const COLD_RECOVER = 45;   // s para entrar en calor con la meta cumplida (noche 1)
 const COLD_RECOVER_HARD = 60; // noches 3+: se entra en calor más despacio (la 2 usa 52)
@@ -42,7 +42,7 @@ export function freshNight() {
 }
 
 // Meta de calor/s de la noche n. `mods.nightEase` la baja (Vigilia, mejoras).
-// La noche 1 es el tutorial (2,5) y la 2 una puerta (2,3). Luego: 3,0 / 3,9 / 5,1 / 6,6…
+// La noche 1 es el tutorial y la 2 una puerta. Luego: 10,8 / 14,6 / 19,7 / 26,6…
 export function nightGoal(n, mods) {
   const base = n <= 1 ? BASE_GOAL : GOAL_2 * Math.pow(GOAL_GROWTH, n - 2);
   return base * (mods?.nightEase ?? 1);

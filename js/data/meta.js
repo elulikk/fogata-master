@@ -3,14 +3,16 @@
 // en estas mejoras. Prestigio reinicia la partida pero conserva `meta`
 // (ceniza, mejoras, amaneceres totales, prestigios) y los ajustes.
 
+import { sizeOf } from './sizes.js';
+
 const grow = (base, k, n) => Math.round(base * Math.pow(k, n));
 const pct = (v) => `${v > 0 ? '+' : ''}${Math.round(v)}%`;
 
 // Hitos que "atajo" deja desbloqueados al empezar de nuevo, por nivel de la mejora.
 export const KEEP_UNLOCKS = [
-  ['calor', 'bosque', 'chispazos'],
-  ['tienda'],
+  ['calor', 'tienda', 'chispazos'],
   ['cartas'],
+  ['clima', 'construir'],
 ];
 
 export const META = [
@@ -45,9 +47,9 @@ export const META = [
     effect: (n) => ({ label: 'Ceniza ganada', before: pct(10 * n), after: pct(10 * (n + 1)) }),
   },
   {
-    id: 'atajo', icon: '🧭', name: 'Camino conocido', desc: 'Empezás con parte de lo desbloqueado: bosque y chispazos, luego tienda, luego cartas.', max: 3,
+    id: 'atajo', icon: '🧭', name: 'Camino conocido', desc: 'Empezás con parte de lo desbloqueado: tienda y chispazos, luego cartas, luego construir.', max: 3,
     cost: (n) => grow(6, 2, n),
-    effect: (n) => ({ label: 'Desbloqueado al empezar', before: ['nada', 'bosque y chispazos', '+ tienda'][n], after: ['bosque y chispazos', '+ tienda', '+ cartas'][n] }),
+    effect: (n) => ({ label: 'Desbloqueado al empezar', before: ['nada', 'tienda y chispazos', '+ cartas'][n], after: ['tienda y chispazos', '+ cartas', '+ construir'][n] }),
   },
   {
     id: 'olfato', icon: '👃', name: 'Olfato de chispa', desc: '+15% de chispazos y de su alcance.', max: 5,
@@ -57,7 +59,7 @@ export const META = [
   {
     id: 'hogar', icon: '🏡', name: 'Hogar heredado', desc: 'Empezás cada partida con una fogata más grande.', max: 3,
     cost: (n) => grow(8, 2.2, n),
-    effect: (n) => ({ label: 'Pozo inicial', before: ['Fogatita', 'Fogata', 'Fogón', 'Hogar'][n], after: ['Fogata', 'Fogón', 'Hogar', 'Hogar'][n] }),
+    effect: (n) => ({ label: 'Fogata inicial', before: sizeOf(n).name, after: sizeOf(n + 1).name }),
   },
   {
     id: 'arquitecto', icon: '📐', name: 'Arquitecto', desc: '+10% al bonus de las estructuras.', max: 3,
@@ -75,7 +77,7 @@ export function freshMeta() {
   return {
     ash: 0, upgrades: {}, totalDawns: 0, prestiges: 0, totalAsh: 0,
     achievements: {},
-    stats: { orbs: 0, forestEvents: 0, maxRate: 0 }, // de por vida
+    stats: { orbs: 0, maxRate: 0 }, // de por vida
   };
 }
 

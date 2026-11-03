@@ -1,10 +1,11 @@
 // Texturas generadas por código (no hay imágenes en assets todavía).
 
 import { WOODS } from '../data/woods.js';
+import { FLAMES } from '../data/flames.js';
 
 export const W = 1280;
 export const H = 720;
-export const GROUND_Y = 650;
+export const GROUND_Y = 590;
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -468,7 +469,7 @@ function pine(ctx, x, base, height, color) {
   ctx.fillRect(x - 3, base - 6, 6, 14);
 }
 
-// Cielo del amanecer: azul profundo arriba → rosa → naranja/oro en el horizonte (y≈540, a la altura de
+// Cielo del amanecer: azul profundo arriba → rosa → naranja/oro en el horizonte (DAWN_HORIZON, a la altura de
 // las colinas), con sol naciente detrás de ellas. Transparente hacia abajo para no lavar suelo ni estante.
 const DAWN_HORIZON = GROUND_Y - 110;
 
@@ -680,77 +681,10 @@ function drawWall(ctx, w, h, kind) {
       ctx.translate(x, y);
       const bh = h / rows;
       if (kind === 'adobe') drawAdobe(ctx, bw, bh, (r + c + 4) % 3);
-      else drawBlock(ctx, bw, bh, kind === 'ritual' ? 220 : 28, kind === 'ritual' ? 30 : 36, (r + c + 4) % 3);
+      else drawBlock(ctx, bw, bh, 28, 36, (r + c + 4) % 3);
       ctx.restore();
     }
   }
-}
-
-// Poste ceremonial: fuste con vetas, bandas de hierro y remate tallado (no triángulo): capitel ancho con
-// dos "cuernos" y un disco. 28×150, mismo tamaño que antes.
-function drawPost(ctx, w, h) {
-  const g = ctx.createLinearGradient(0, 0, w, 0);
-  g.addColorStop(0, '#24160d');
-  g.addColorStop(0.32, '#74523a');
-  g.addColorStop(0.6, '#4a3321');
-  g.addColorStop(1, '#170d07');
-  ctx.fillStyle = g;
-  roundRectPath(ctx, 3, 16, w - 6, h - 16, 4);
-  ctx.fill();
-  // Vetas verticales.
-  ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-  ctx.lineWidth = 1;
-  for (let i = 0; i < 6; i++) {
-    const x = rand(6, w - 6);
-    ctx.beginPath(); ctx.moveTo(x, 18); ctx.lineTo(x + rand(-2, 2), h - 4); ctx.stroke();
-  }
-  // Bandas de hierro.
-  for (const y of [38, 78, 118]) {
-    ctx.fillStyle = '#1b1b20';
-    ctx.fillRect(2, y, w - 4, 5);
-    ctx.fillStyle = 'rgba(160,170,190,0.35)';
-    ctx.fillRect(2, y, w - 4, 1);
-  }
-  // Capitel: bloque ancho con cuernos y disco central.
-  const cg = ctx.createLinearGradient(0, 0, 0, 18);
-  cg.addColorStop(0, '#8a6644');
-  cg.addColorStop(1, '#4a3220');
-  ctx.fillStyle = cg;
-  ctx.beginPath();
-  ctx.moveTo(0, 16); ctx.lineTo(1, 6); ctx.lineTo(5, 1); ctx.lineTo(8, 9);
-  ctx.lineTo(w - 8, 9); ctx.lineTo(w - 5, 1); ctx.lineTo(w - 1, 6); ctx.lineTo(w, 16);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.fillStyle = '#c9a26a';
-  ctx.beginPath(); ctx.arc(w / 2, 10, 3.2, 0, Math.PI * 2); ctx.fill();
-  ctx.stroke();
-  // Tallado: el brillo de la runa lo pone `rune-glow` encima.
-  ctx.strokeStyle = 'rgba(0,0,0,0.65)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(w / 2 - 5, 52); ctx.lineTo(w / 2, 58); ctx.lineTo(w / 2 + 5, 52);
-  ctx.moveTo(w / 2 - 5, 62); ctx.lineTo(w / 2, 68); ctx.lineTo(w / 2 + 5, 62);
-  ctx.moveTo(w / 2, 58); ctx.lineTo(w / 2, 72);
-  ctx.stroke();
-}
-
-function drawRune(ctx, w, h) {
-  const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, w / 2);
-  g.addColorStop(0, 'rgba(255,255,255,0.7)');
-  g.addColorStop(1, 'rgba(255,255,255,0)');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = '#fff';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(w * 0.5, h * 0.18); ctx.lineTo(w * 0.5, h * 0.82);
-  ctx.moveTo(w * 0.5, h * 0.3); ctx.lineTo(w * 0.78, h * 0.5);
-  ctx.moveTo(w * 0.5, h * 0.5); ctx.lineTo(w * 0.22, h * 0.7);
-  ctx.stroke();
 }
 
 function drawGhost(ctx, w, h) {
@@ -840,18 +774,20 @@ function drawFlameTongue(ctx, w, h, lean, curl) {
 }
 
 // Llama base persistente (colores horneados, para mezcla ADD): varias lenguas superpuestas.
-function drawFlameBase(ctx, w, h) {
+function drawFlameBase(ctx, w, h, flame) {
   const cx = w / 2, baseY = h - 14;
-  const tongues = [
-    // hw, ht, lean, curl, [pie, medio, punta]
-    [w * 0.34, h * 0.9, w * 0.07, w * 0.08, ['rgba(255,150,40,0.85)', 'rgba(230,70,15,0.55)', 'rgba(120,20,5,0)']],
-    [w * 0.27, h * 0.74, -w * 0.1, -w * 0.06, ['rgba(255,190,70,0.9)', 'rgba(255,110,25,0.65)', 'rgba(200,50,10,0)']],
-    [w * 0.19, h * 0.52, w * 0.04, w * 0.03, ['rgba(255,235,150,0.95)', 'rgba(255,170,50,0.7)', 'rgba(255,110,25,0)']],
-    [w * 0.1, h * 0.3, 0, 0, ['rgba(255,255,235,1)', 'rgba(255,235,150,0.8)', 'rgba(255,200,90,0)']],
+  const shapes = [
+    // hw, ht, lean, curl
+    [w * 0.34, h * 0.9, w * 0.07, w * 0.08],
+    [w * 0.27, h * 0.74, -w * 0.1, -w * 0.06],
+    [w * 0.19, h * 0.52, w * 0.04, w * 0.03],
+    [w * 0.1, h * 0.3, 0, 0],
   ];
-  ctx.shadowColor = 'rgba(255,120,30,0.8)';
+  ctx.shadowColor = flame.shadow;
   ctx.shadowBlur = 8;
-  for (const [hw, ht, lean, curl, cols] of tongues) {
+  for (let i = 0; i < shapes.length; i++) {
+    const [hw, ht, lean, curl] = shapes[i];
+    const cols = flame.tongues[i]; // [pie, medio, punta]
     const g = ctx.createLinearGradient(0, baseY - ht, 0, baseY + hw * 0.2);
     g.addColorStop(0, cols[2]);
     g.addColorStop(0.45, cols[1]);
@@ -1238,8 +1174,8 @@ function drawGroundLit(ctx, w, h) {
   ctx.lineCap = 'round';
   for (let i = 0; i < 320; i++) {
     const x = rand(0, w);
-    const y = GROUND_Y + rand(-1, 60) * Math.random();
-    const near = (y - GROUND_Y) / 60;
+    const y = GROUND_Y + rand(-1, h - GROUND_Y) * Math.random();
+    const near = (y - GROUND_Y) / (h - GROUND_Y);
     ctx.strokeStyle = ['#4a6a2a', '#5e7e34', '#7c9640', '#3a5422'][i % 4];
     ctx.globalAlpha = rand(0.55, 0.95);
     ctx.lineWidth = rand(0.8, 1.6);
@@ -1396,18 +1332,13 @@ export function createTextures(scene) {
   halfTex(scene, 'sky-dawn', drawDawnSky);
   halfTex(scene, 'dawn-rays', drawDawnRays);
 
-  // Pozos por tamaño (C4). Tiers: 0-1 anillo (stone0..3), 2-3 piedra trabajada, 4-5 adobe, 6-7 ceremonial.
+  // Materiales de los pozos; lo demás de cada escalón está en gfx/hearths.js.
   canvasTex(scene, 'hewn0', 56, 38, (ctx, w, h) => drawBlock(ctx, w, h, 28, 34, 0));
   canvasTex(scene, 'hewn1', 44, 30, (ctx, w, h) => drawBlock(ctx, w, h, 28, 38, 1));
   canvasTex(scene, 'adobe0', 56, 38, (ctx, w, h) => drawAdobe(ctx, w, h, 1));
   canvasTex(scene, 'adobe1', 44, 30, (ctx, w, h) => drawAdobe(ctx, w, h, 0));
-  canvasTex(scene, 'ritual0', 56, 38, (ctx, w, h) => drawBlock(ctx, w, h, 220, 28, 2));
-  canvasTex(scene, 'ritual1', 44, 30, (ctx, w, h) => drawBlock(ctx, w, h, 220, 32, 0));
   canvasTex(scene, 'wall-stone', 64, 64, (ctx, w, h) => drawWall(ctx, w, h, 'stone'));
   canvasTex(scene, 'wall-adobe', 64, 64, (ctx, w, h) => drawWall(ctx, w, h, 'adobe'));
-  canvasTex(scene, 'wall-ritual', 64, 64, (ctx, w, h) => drawWall(ctx, w, h, 'ritual'));
-  canvasTex(scene, 'post', 28, 150, drawPost);
-  canvasTex(scene, 'rune-glow', 24, 24, drawRune);
   canvasTex(scene, 'pit-ghost', 128, 128, drawGhost);
   canvasTex(scene, 'bed-ring', 256, 48, drawBedRing);
   canvasTex(scene, 'pit-bed', 256, 40, drawBed);
@@ -1517,7 +1448,7 @@ export function createTextures(scene) {
   canvasTex(scene, 'flame-c', 48, 120, (ctx, w, h) => drawFlameTongue(ctx, w, h, -7, -6));
   canvasTex(scene, 'flame-lick', 24, 60, (ctx, w, h) => drawFlameTongue(ctx, w, h, 3, 3));
   canvasTex(scene, 'flame-core', 32, 56, (ctx, w, h) => drawFlameTongue(ctx, w, h, 0, 0));
-  canvasTex(scene, 'flame-base', 160, 220, drawFlameBase);
+  for (const flame of Object.values(FLAMES)) canvasTex(scene, flame.baseKey, 160, 220, (ctx, w, h) => drawFlameBase(ctx, w, h, flame));
   // Luz
   canvasTex(scene, 'glow-ground', 512, 128, drawGlowGround);
   // Leña prendida / carbonizada (128×32, escalar a largo×grosor de la leña)

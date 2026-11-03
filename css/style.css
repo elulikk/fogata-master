@@ -102,6 +102,18 @@ button {
   background: rgba(255, 150, 60, 0.2);
 }
 
+/* El icono del calor: un $ de fuego, con la barra que termina en una lengua de llama. */
+.heat {
+  display: inline-block;
+  flex: none;
+  width: 0.72em;
+  height: 1em;
+  vertical-align: -0.12em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 33'%3E%3Cdefs%3E%3ClinearGradient id='f' gradientUnits='userSpaceOnUse' x1='0' y1='0' x2='0' y2='33'%3E%3Cstop offset='0' stop-color='%23fff3b0'/%3E%3Cstop offset='.4' stop-color='%23ffb52e'/%3E%3Cstop offset='1' stop-color='%23ea3f17'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath id='s' d='M18.8 12C18.2 9 15.6 7.6 12 7.6 8.2 7.6 5.3 9.5 5.3 12.6 5.3 19.2 18.9 15.2 18.9 21.8 18.9 24.8 15.8 26.6 12 26.6 8.3 26.6 5.5 25 4.9 22' stroke='%232a0d02' stroke-width='6.6'/%3E%3Cpath d='M18.8 12C18.2 9 15.6 7.6 12 7.6 8.2 7.6 5.3 9.5 5.3 12.6 5.3 19.2 18.9 15.2 18.9 21.8 18.9 24.8 15.8 26.6 12 26.6 8.3 26.6 5.5 25 4.9 22' stroke='url(%23f)' stroke-width='4.2'/%3E%3C/g%3E%3Cpath d='M12.6.6C15.6 3.6 15.8 6 13.9 8.2L13.7 31.8H10.3L10.1 8.2C8.8 6.2 10 3.2 12.6.6Z' fill='url(%23f)' stroke='%232a0d02' stroke-width='1.2' stroke-linejoin='round'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+#hud-calor .calor .heat { filter: drop-shadow(0 0 7px rgba(255, 120, 30, 0.7)); }
+
 /* --- Calor y nivel --- */
 #hud-calor {
   position: absolute;
@@ -173,21 +185,44 @@ button {
   z-index: 6;
 }
 
-#matches {
-  font-size: 16px;
-  color: var(--text);
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid var(--panel-line);
-  border-radius: 10px;
-  padding: 7px 12px;
+/* --- Barra de herramientas (abajo al centro) --- */
+#tools {
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
   display: flex;
-  align-items: center;
   gap: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(14, 8, 4, 0.72);
+  border: 1px solid var(--panel-line);
+  z-index: 1;
 }
 
-#matches.empty b {
-  color: var(--bad);
+.tool {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 9px;
+  border: 2px solid transparent;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background 0.12s, border-color 0.12s;
 }
+
+.tool:hover { background: rgba(255, 170, 90, 0.18); }
+.tool.on {
+  background: rgba(255, 150, 60, 0.28);
+  border-color: #ffd36b;
+}
+.tool .t-ico { font-size: 22px; display: flex; align-items: center; justify-content: center; width: 22px; }
+.tool .t-count { font-size: 17px; color: #ffd7a0; font-variant-numeric: tabular-nums; }
+.tool.empty .t-count { color: var(--bad); }
+.tool.empty .t-ico { opacity: 0.45; }
 
 .match {
   display: inline-block;
@@ -280,7 +315,7 @@ button {
 #hint {
   position: absolute;
   left: 50%;
-  bottom: 22px;
+  bottom: 92px;
   transform: translateX(-50%);
   font-size: 17px;
   color: #f6dcc0;
@@ -476,46 +511,8 @@ button {
   opacity: 0.55;
 }
 
-/* --- En el bosque --- */
-#away {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at 50% 70%, rgba(5, 12, 6, 0.35), rgba(2, 6, 3, 0.75));
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  pointer-events: auto;
-  animation: fadein 0.4s;
-  z-index: 2;
-}
-
 @keyframes fadein {
   from { opacity: 0; }
-}
-
-.away-box {
-  margin-top: 150px;
-  text-align: center;
-  background: rgba(10, 20, 12, 0.85);
-  border: 1px solid rgba(140, 200, 120, 0.35);
-  border-radius: 16px;
-  padding: 16px 28px;
-  width: 380px;
-}
-
-.away-title {
-  font-size: 22px;
-  font-weight: 600;
-}
-
-.away-sub {
-  font-size: 14px;
-  color: var(--muted);
-  margin: 4px 0 12px;
-}
-
-#away-fill {
-  background: linear-gradient(90deg, #4f8a3a, #a8de7a);
 }
 
 /* --- Cartas --- */
@@ -1018,7 +1015,9 @@ kbd {
 
 #ui.compact #hud-calor .calor { font-size: 30px; }
 #ui.compact #level { width: 170px; }
-#ui.compact #matches { font-size: 14px; padding: 5px 9px; }
+#ui.compact #tools { left: auto; right: 8px; bottom: 76px; transform: none; }
+#ui.small .tool { height: calc(44px / var(--k)); }
+#ui.compact .tool .t-txt { display: none; }
 #ui.compact #topc { top: 64px; max-width: 70%; }
 #ui.compact #forecast { font-size: 14px; padding: 5px 12px; }
 #ui.compact #night { width: 260px; }
@@ -1026,7 +1025,7 @@ kbd {
 #ui.compact #actions { flex-direction: row; right: 8px; bottom: 8px; gap: 6px; }
 /* Debajo de #hud-right (en compact sus botones miden ~61px): así no tapa el ⚙. */
 #ui.compact #helpers { right: 8px; bottom: auto; top: 84px; flex-direction: column; }
-#ui.compact #hint { font-size: 14px; white-space: normal; text-align: center; width: 50%; bottom: 62px; }
+#ui.compact #hint { font-size: 14px; white-space: normal; text-align: center; width: 50%; bottom: 72px; }
 #ui.compact .act { min-width: 0; padding: 8px 12px; font-size: 15px; }
 #ui.compact #cards { gap: 10px; }
 #ui.compact .card { width: 150px; min-height: 0; padding: 12px 10px; gap: 6px; }
@@ -1038,7 +1037,6 @@ kbd {
 #ui.compact .menu-box { width: 92%; padding: 14px 16px; }
 #ui.compact .menu-box p { margin: 6px 0; font-size: 14px; }
 #ui.compact .set-row input[type="range"] { width: 160px; }
-#ui.compact .away-box { margin-top: 90px; width: 300px; }
 
 /* --- Vertical: pedir que giren el dispositivo --- */
 #rotate {
@@ -1534,7 +1532,6 @@ kbd {
   box-shadow: 0 2px 14px rgba(0, 0, 0, 0.35);
 }
 #ui.sky-day #hud-calor { background: rgba(14, 8, 4, 0.62); }
-#ui.sky-day #matches,
 #ui.sky-day #hint,
 #ui.sky-day .pit-tag,
 #ui.sky-day #forecast { background: rgba(14, 8, 4, 0.72); }

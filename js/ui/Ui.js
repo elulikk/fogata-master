@@ -5,6 +5,8 @@
 
 import { WEATHER_INFO } from '../objects/Weather.js';
 import { SIZES } from '../data/sizes.js';
+import { TOOLS } from '../data/tools.js';
+import { HEAT } from '../utils/heat.js';
 import { MainMenu } from './MainMenu.js';
 
 const $ = (id) => document.getElementById(id);
@@ -45,6 +47,7 @@ function effectsOf(i) {
       { label: 'Tipis', before: `${a.tipis}`, after: `${b.tipis}` },
       { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
       { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
+      { label: 'Consumo de leña', before: `×${a.burn}`, after: `×${b.burn}` },
     ];
   }
   return i.effect && i.effect.label ? [i.effect] : [];
@@ -67,11 +70,11 @@ const TOAST_PRIO = { bad: 2, unlock: 1 };
 const TUT_KEY = 'fogata-ui-tut';
 const TUT_STEPS = [
   { id: 'drag', text: 'Arrastrá una leña hasta el fuego', on: { grab: 'Soltala sobre un lugar marcado' }, done: 'snap', ttl: 45 },
-  { id: 'tipi', text: 'Ramas al centro, leña al medio y troncos afuera', done: 'structure:tipi', ttl: 60 },
+  { id: 'tipi', text: 'Las ramas prenden con nada; los troncos piden un fuego fuerte', done: 'structure:tipi', ttl: 60 },
 ];
 // Avisos urgentes de la escena: ganan sobre el tutorial.
 // Incluye "prender": si el fuego no prende solo, esa ayuda (que manda la escena) va primero.
-const URGENT = /apag[óo]|fósforo|prend|brasas|bosque|lleno/i;
+const URGENT = /apag[óo]|fósforo|prend|brasas|comprar|lleno/i;
 
 // Efecto "antes → después": si no hay valor previo ('—' o vacío), se muestra solo el "después".
 const sinAntes = (v) => v == null || ['', '—', '-'].includes(String(v).trim());
@@ -79,7 +82,7 @@ const efectoTexto = (e) => (sinAntes(e.before) ? `${e.after}` : `${e.before} →
 
 function priceHtml(p) {
   const parts = [];
-  if (p.calor) parts.push(`<span class="c c-calor">🔥 ${fmt(p.calor)}</span>`);
+  if (p.calor) parts.push(`<span class="c c-calor">${HEAT} ${fmt(p.calor)}</span>`);
   if (p.tronco) parts.push(`<span class="c c-tronco">🪵 ${p.tronco}</span>`);
   if (p.ceniza) parts.push(`<span class="c c-ceniza">🪦 ${fmt(p.ceniza)}</span>`);
   return parts.join(' ') || 'Gratis';
@@ -166,7 +169,13 @@ export class Ui {
   }
 
   setupButtons() {
-    $('btn-forest').addEventListener('click', () => this.handlers.forest?.());
+    $('tools').innerHTML = TOOLS.map((t) => `<button id="tool-${t.id}" class="tool" data-tool="${t.id}" title="${t.name}: ${t.desc}" aria-label="${t.name}">
+        <span class="t-ico">${t.icon}</span><span class="t-txt">${t.name}</span>${t.res ? '<b class="t-count"></b>' : ''}<kbd>${t.key}</kbd>
+      </button>`).join('');
+    $('tools').addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-tool]');
+      if (b) this.handlers.selectTool?.(b.dataset.tool);
+    });
     for (const tab of Object.keys(TABS)) $(TABS[tab].btn).addEventListener('click', () => this.togglePanel(tab));
     $('panel-close').addEventListener('click', () => this.closePanel());
     $('calor-rate').addEventListener('click', () => $('rate-pop').classList.toggle('open'));
@@ -282,10 +291,7 @@ export class Ui {
       else if (key === 'c') open('construir');
       else if (key === 'a') open('cenizas');
       else if (key === 'm') $('btn-mute').click();
-      else if (key === 'b') {
-        const b = $('btn-forest');
-        if (!b.classList.contains('hidden') && !b.disabled) b.click();
-      }
+      else if (TOOLS.some((t) => t.key === key)) this.handlers.selectTool?.(TOOLS.find((t) => t.key === key).id);
     });
   }
 
@@ -615,10 +621,10 @@ export class Ui {
     this.pump();
   }
 
-  // Evento de bosque: sin choices es un aviso; con choices, un mini-diálogo (onChoose(id)).
-  forestEvent({ icon = '🌲', title = '', text = '', choices } = {}, onChoose) {
+  // Evento: sin choices es un aviso; con choices, un mini-diálogo (onChoose(id)).
+  eventCard({ icon = '🔥', title = '', text = '', head = 'Aviso', choices } = {}, onChoose) {
     if (choices && choices.length) this.noticeQ.push({ type: 'dialog', icon, title, text, choices, onChoose });
-    else this.noticeQ.push({ type: 'event', icon, name: title, desc: text, head: 'En el bosque', onChoose });
+    else this.noticeQ.push({ type: 'event', icon, name: title, desc: text, head, onChoose });
     this.pump();
   }
 
@@ -683,8 +689,8 @@ export class Ui {
     this.lastHint = force ? this.lastHint : text;
     if (!force && performance.now() < this.rotHintUntil) return;
     if (!force && this.tutStep && !(text && urgent)) text = this.tutText();
-    // Pulso sobre los fósforos cuando la pista habla de prender.
-    this.guide(/fósforo|prend/i.test(text || '') ? 'matches' : null);
+    // Pulso sobre la herramienta elegida cuando la pista habla de prender.
+    this.guide(/fósforo|prend/i.test(text || '') ? `tool-${this.activeTool || TOOLS[0].id}` : null);
     if (el.dataset.text === text) return;
     el.dataset.text = text;
     el.style.opacity = 0;
@@ -719,26 +725,26 @@ export class Ui {
 
     if (v.levelOn) this.updateLevel(v);
 
-    $('matches-val').textContent = v.matches;
-    $('matches').classList.toggle('empty', v.matches === 0);
-
+    this.updateTools(v);
     this.updateForecast(v);
     this.updateNight(v.night);
 
-    const forest = $('btn-forest');
-    forest.disabled = !!v.trip;
-    forest.querySelector('.fill').style.width = v.trip ? `${Math.round(v.trip.progress * 100)}%` : '0';
-    forest.querySelector('.lbl').textContent = v.trip ? '🌲 En el bosque…' : '🌲 Ir al bosque';
-
-    if (v.trip) {
-      this.reveal('away', true);
-      $('away-fill').style.width = `${Math.round(v.trip.progress * 100)}%`;
-    } else {
-      this.reveal('away', false);
-    }
-
     this.renderHelpers(v.helpers || []);
     if (this.panelTab) this.renderPanel();
+  }
+
+  // Barra de herramientas: la elegida resaltada y cuánto queda de las que se gastan.
+  updateTools(v) {
+    this.activeTool = v.tool;
+    for (const t of TOOLS) {
+      const el = $(`tool-${t.id}`);
+      el.classList.toggle('on', t.id === v.tool);
+      el.setAttribute('aria-pressed', t.id === v.tool);
+      if (!t.res) continue;
+      const n = v.res[t.res] || 0;
+      el.querySelector('.t-count').textContent = n;
+      el.classList.toggle('empty', n === 0);
+    }
   }
 
   // rateInfo: texto, o { text, mult, lines: [..] }. Todo opcional.
@@ -779,7 +785,7 @@ export class Ui {
     this.goalSig = sig;
     box.classList.toggle('hidden', !g);
     if (!g) return;
-    box.querySelector('.g-txt').textContent = `${g.icon || '🎯'} ${g.text}`;
+    box.querySelector('.g-txt').innerHTML = `${g.icon || '🎯'} ${g.text}`;
     const bar = box.querySelector('.g-bar');
     bar.classList.toggle('hidden', !num(g.progress));
     if (num(g.progress)) bar.firstChild.style.width = `${Math.round(Math.max(0, Math.min(1, g.progress)) * 100)}%`;
@@ -867,13 +873,13 @@ export class Ui {
     let meter = '';
     if (phase === 'dusk') {
       text = `🌅 Atardece · la noche llega en ${secs} s`;
-      if (num(n.goal)) meter = `<span class="n-need">Necesitás ${n.goal.toFixed(1)} 🔥/s</span>`;
+      if (num(n.goal)) meter = `<span class="n-need">Necesitás ${n.goal.toFixed(1)} ${HEAT}/s</span>`;
     } else {
       text = `🌙 Noche ${n.n || ''} · ${clock}`;
       if (num(n.goal)) {
         const rate = this.lastRate || 0;
         const miss = num(n.missing) ? n.missing : Math.max(0, n.goal - rate);
-        meter = `<span class="n-rate ${miss > 0.05 ? 'bad' : 'good'}">${rate.toFixed(1)} / ${n.goal.toFixed(1)} 🔥/s</span> `
+        meter = `<span class="n-rate ${miss > 0.05 ? 'bad' : 'good'}">${rate.toFixed(1)} / ${n.goal.toFixed(1)} ${HEAT}/s</span> `
           + (miss > 0.05 ? `<span class="n-need">te faltan ${miss.toFixed(1)} /s</span>` : '<span class="n-ok">¡vas bien! ✓</span>');
       }
     }
@@ -1013,12 +1019,15 @@ export class Ui {
       multi.classList.toggle('hidden', !effs.length);
       const need = i.maxed ? {} : this.needOf(i);
       const short = [];
-      if (need.calor > 0) short.push(`${fmt(need.calor)} 🔥`);
+      if (need.calor > 0) short.push(`${fmt(need.calor)} ${HEAT}`);
       if (need.tronco > 0) short.push(`${need.tronco} 🪵`);
       if (need.ceniza > 0) short.push(`${fmt(need.ceniza)} 🪦`);
       const nd = row.querySelector('.need');
       const text = short.length ? `faltan ${short.join(' / ')}` : '';
-      if (nd.textContent !== text) nd.textContent = text;
+      if (nd.dataset.text !== text) {
+        nd.dataset.text = text;
+        nd.innerHTML = text;
+      }
       nd.classList.toggle('hidden', !text);
       row.querySelector('.c-calor')?.classList.toggle('short', need.calor > 0);
       row.querySelector('.c-tronco')?.classList.toggle('short', need.tronco > 0);
@@ -1109,7 +1118,7 @@ export class Ui {
   // Traduce los datos de la escena ({kind:'dawn'|'prestige', ...}) a título y líneas.
   describeSummary(d) {
     if (d.kind === 'dawn') {
-      const lines = [['Calor de la noche', fmt(d.calor || 0), '🔥']];
+      const lines = [['Calor de la noche', fmt(d.calor || 0), HEAT]];
       if (num(d.goal)) lines.push(['Meta', `${d.goal.toFixed(1)} /s`, '🎯']);
       if (d.success && num(d.margin) && d.margin > 0.05) lines.push(['Margen sobre la meta', `+${Math.round(d.margin * 100)} %`, '📈']);
       if (d.success) lines.push(['Cenizas ganadas', `+${d.ash}`, '🪦'], ['Cenizas disponibles', fmt(d.ashAvail ?? d.ashTotal ?? 0), '🪦'], ['Cenizas en total', fmt(d.ashTotal || 0), '🪦']);
@@ -1132,7 +1141,7 @@ export class Ui {
           ['Cenizas ganadas', `+${fmt(d.ash || 0)}`, '🪦'],
           ['Cenizas disponibles', fmt(d.ashAvail ?? d.ashTotal ?? 0), '🪦'],
           ['Cenizas en total', fmt(d.ashTotal || 0), '🪦'],
-          ['Calor de la partida', fmt(d.runCalor || 0), '🔥'],
+          ['Calor de la partida', fmt(d.runCalor || 0), HEAT],
           ['Amaneceres', d.dawns || 0, '🌄'],
           ['Prestigios', d.prestiges || 0, '♻️'],
         ],
@@ -1174,7 +1183,7 @@ export class Ui {
 
   // Vuelve la interfaz al estado del arranque (partida nueva).
   resetView() {
-    for (const id of ['hud-calor', 'level', 'forecast', 'night', 'btn-forest', 'btn-shop', 'btn-build', 'btn-ashes', 'panel', 'modal', 'summary', 'away']) {
+    for (const id of ['hud-calor', 'level', 'forecast', 'night', 'btn-shop', 'btn-build', 'btn-ashes', 'panel', 'modal', 'summary']) {
       $(id).classList.add('hidden');
     }
     for (const id of ['btn-shop', 'btn-build', 'btn-ashes']) $(id).classList.remove('new');

@@ -1,14 +1,15 @@
 // El fuego: maneja todas las leñas y los pozos de fogata.
-// Cada leña recibe calor de las que arden cerca (el calor sube), se calienta,
+// Cada leña recibe el calor de todo lo que arde en su pozo (no importa dónde esté), se calienta,
 // se seca si está húmeda, prende, arde, queda en brasas y termina en ceniza.
 // La leña ocupa lugares fijos de cada pozo y se va achicando de anillo en anillo.
 
-import { segSegDist, pointSegDist, lerpColor, clamp } from '../utils/geom.js';
+import { pointSegDist, lerpColor, clamp } from '../utils/geom.js';
 import { GROUND_Y } from '../gfx/textures.js';
 import { STRUCTURE } from '../data/sizes.js';
+import { FLAMES } from '../data/flames.js';
 import { slotStructure, lowerFree } from '../utils/slots.js';
 
-const HEAT_RANGE = 48;
+const HEAT_SHARE = 1.6;        // cuánto del calor del pozo le llega a cada leña
 const STRUCT_STEP = 0.25;      // la estructura se revisa a 4 Hz
 const SHRINK_AT = 0.5;         // fracción de combustible a la que una pieza pasa al tamaño de abajo
 
@@ -43,9 +44,21 @@ export class Fire {
   get mods() { return this.scene.state.mods; }
 
   createEmitters() {
-    const s = this.scene;
     // Llamas: lenguas afiladas (flame-a/b/c, 48×120) que suben y se afinan; el color pasa de crema a rojo
     // oscuro con la vida. Dos texturas por tamaño dan variedad de curva; flameCore es el núcleo claro.
+    this.flameSets = {};
+    const set = this.flameSetOf('fuego');
+    this.flames = { S: set.S, M: set.M, L: set.L };
+    this.flamesAlt = { S: null, M: set.altM, L: set.altL };
+    this.flameCore = set.core;
+    this.createEffects();
+  }
+
+  // Un juego de emisores por paleta de fuego (data/flames.js); se crea la primera vez que hace falta.
+  flameSetOf(id) {
+    if (this.flameSets[id]) return this.flameSets[id];
+    const s = this.scene;
+    const color = FLAMES[id].particles;
     const flame = (tex, scale, life, speed, alpha = 0.27, depth = 19.5) => s.add.particles(0, 0, tex, {
       emitting: false,
       lifespan: { min: life * 0.6, max: life },
@@ -56,17 +69,26 @@ export class Fire {
       scaleX: { start: scale * 1.1, end: scale * 0.25 },
       scaleY: { start: scale, end: scale * 0.55 },
       alpha: { start: alpha, end: 0 },
-      color: [0xffc870, 0xff9a30, 0xe85010, 0x6a1400],
+      color,
       colorEase: 'quad.out',
       blendMode: 'ADD',
     }).setDepth(depth);
-    this.flames = {
+    return (this.flameSets[id] = {
       S: flame('flame-lick', 0.9, 650, 100, 0.27, 40),
       M: flame('flame-b', 0.75, 800, 120),
       L: flame('flame-a', 0.95, 950, 140),
-    };
-    this.flamesAlt = { S: null, M: flame('flame-c', 0.75, 800, 120), L: flame('flame-c', 0.95, 950, 140) };
-    this.flameCore = flame('flame-core', 0.55, 520, 90, 0.18, 40);
+      altM: flame('flame-c', 0.75, 800, 120),
+      altL: flame('flame-c', 0.95, 950, 140),
+      core: flame('flame-core', 0.55, 520, 90, 0.18, 40),
+    });
+  }
+
+  flameSet(pit) {
+    return this.flameSetOf(pit?.spec.flame || 'fuego');
+  }
+
+  createEffects() {
+    const s = this.scene;
     // Chispas alargadas: la punta brillante apunta en el sentido de la velocidad.
     const streak = {
       onEmit: () => 0,
@@ -192,6 +214,19 @@ export class Fire {
     this.sources.push({ x, y, heat, ttl, r, acc: 0 });
   }
 
+  // ¿Alcanza ese calor para prender esta leña sin nada más? La húmeda se deja probar: primero se seca.
+  canLight(l, heat, ttl) {
+    const w = l.wood;
+    if (l.moisture > 0) return true;
+    const warm = w.warm * this.mods.warm * (l.pit ? (1 + 0.05 * l.pit.size) / l.pit.sIgnite : 1);
+    return l.temp + (heat - l.temp) * (1 - Math.exp(-ttl / warm)) >= w.ignite * this.mods.ignite;
+  }
+
+  // Qué tan cerca está de prender (0..1): cada tamaño tiene su umbral, y la humedad frena en un valor bajo.
+  warmth(l) {
+    return l.moisture > 0 ? l.temp : Math.min(1, l.temp / (l.wood.ignite * this.mods.ignite));
+  }
+
   pump(pit) {
     pit.bellows = Math.min(1.3, pit.bellows + 0.55 * this.mods.bellows);
     this.audio.whoosh(0.8);
@@ -305,7 +340,7 @@ export class Fire {
       p.flash = Math.max(p.flash || 0, 1.2 * strength * k);
       const n = Math.round(10 * strength * k);
       for (let i = 0; i < n; i++) {
-        this.flames.L.emitParticleAt(p.x + (Math.random() - 0.5) * p.half * 1.4, GROUND_Y - 40 - Math.random() * 30);
+        this.flameSet(p).L.emitParticleAt(p.x + (Math.random() - 0.5) * p.half * 1.4, GROUND_Y - 40 - Math.random() * 30);
       }
       this.sparkAt({ x: p.x, y: GROUND_Y - 50 }, Math.round(24 * strength * k));
     }
@@ -343,7 +378,7 @@ export class Fire {
     pit.flash = Math.max(pit.flash || 0, 1.6 * k);
     for (let i = 0, n = Math.round(30 * k); i < n; i++) {
       this.scene.time.delayedCall(i * 35, () => {
-        this.flames.L.emitParticleAt(pit.x + (Math.random() - 0.5) * pit.half * 1.2, GROUND_Y - 60 - Math.random() * 40);
+        this.flameSet(pit).L.emitParticleAt(pit.x + (Math.random() - 0.5) * pit.half * 1.2, GROUND_Y - 60 - Math.random() * 40);
         if (i % 3 === 0) this.sparkAt({ x: pit.x + (Math.random() - 0.5) * pit.half, y: GROUND_Y - 70 }, 3);
       });
     }
@@ -358,7 +393,7 @@ export class Fire {
     const spread = pit.half * 0.25;
     for (let i = 0; i < n; i++) {
       this.scene.time.delayedCall(i * 25, () => {
-        this.flames.L.emitParticleAt(pit.x + (Math.random() - 0.5) * spread, GROUND_Y - 50 - Math.random() * 30);
+        this.flameSet(pit).L.emitParticleAt(pit.x + (Math.random() - 0.5) * spread, GROUND_Y - 50 - Math.random() * 30);
       });
     }
     this.ring.emitParticleAt(pit.x, GROUND_Y - 30, Math.max(2, Math.round(14 * k)));
@@ -557,9 +592,10 @@ export class Fire {
       p.loadRatio = p.load / p.capacity;
       p.bellows = Math.max(0, p.bellows - dt * 0.7);
       p.flash = Math.max(0, (p.flash || 0) - dt * 2.2);
+      p.bellows = Math.max(p.bellows, p.perks.bellows); // la fragua sopla sola
       p.air = Math.min(1.5, (1 + p.bellows * 0.6 + wind * 0.3) * p.airSize * p.sAir * mods.draft);
       // Un pozo más grande se moja más si no tiene techo.
-      p.rain = p.roof ? 0 : rainAll * (1 + 0.1 * p.size);
+      p.rain = p.roof || p.perks.covered ? 0 : rainAll * (1 + 0.1 * p.size);
       // Una fogata armada escurre parte del agua: aguanta la lluvia moderada en pozos grandes.
       if (p.rain > 0 && p.structure.type === 'tipi') p.rain *= 1 - 0.35 * p.structure.quality;
     }
@@ -567,30 +603,10 @@ export class Fire {
     this.updateStructures(dt);
 
     // --- Calor que recibe cada leña ---
-    const segs = new Array(n);
-    for (let i = 0; i < n; i++) segs[i] = logs[i].endpoints();
+    // Se comparte en todo el pozo: da igual dónde esté cada pieza y en qué orden se puso.
     const amb = new Float32Array(n);
-    const touch = new Float32Array(n); // calor que llega por contacto o cruce de una vecina ardiendo
-    for (let i = 0; i < n; i++) {
-      const li = logs[i];
-      for (let j = i + 1; j < n; j++) {
-        const lj = logs[j];
-        if (li.heatOut <= 0 && lj.heatOut <= 0) continue;
-        if (Math.abs(li.x - lj.x) > 260 || Math.abs(li.y - lj.y) > 260) continue;
-        let d = segSegDist(segs[i], segs[j]) - (li.thickness + lj.thickness) * 0.5;
-        if (d > HEAT_RANGE * 3) continue;
-        d = Math.max(0, d);
-        const f = Math.exp(-(d * d) / (HEAT_RANGE * HEAT_RANGE));
-        // El calor sube: lo que está arriba recibe más.
-        const iBelow = li.y > lj.y;
-        amb[j] += li.heatOut * f * (iBelow ? 1 : 0.6);
-        amb[i] += lj.heatOut * f * (iBelow ? 0.6 : 1);
-        if (d <= 3) { // se tocan o se cruzan: la llama sube por la estructura (lo de abajo prende lo de arriba)
-          if (li.flame > 0.2 || li.state === 'brasas') touch[j] = Math.max(touch[j], li.heatOut * (iBelow ? 1 : 0.7));
-          if (lj.flame > 0.2 || lj.state === 'brasas') touch[i] = Math.max(touch[i], lj.heatOut * (iBelow ? 0.7 : 1));
-        }
-      }
-    }
+    for (const p of this.pits) p.logHeat = 0;
+    for (const l of logs) l.pit.logHeat += l.heatOut;
     for (let k = this.sources.length - 1; k >= 0; k--) {
       const s = this.sources[k];
       s.ttl -= dt;
@@ -602,18 +618,14 @@ export class Fire {
       const l = logs[i];
       let src = 0;
       for (const s of this.sources) {
-        const d = Math.max(0, pointSegDist(s.x, s.y, ...segs[i]) - l.thickness / 2);
+        const d = Math.max(0, pointSegDist(s.x, s.y, ...l.endpoints()) - l.thickness / 2);
         src += s.heat * Math.exp(-(d * d) / (s.r * s.r));
       }
       const p = l.pit;
-      amb[i] += src;
-      if (p) {
-        amb[i] += p.bed * (0.55 + 0.6 * p.bellows) * (1 + 0.15 * p.size) * (l.y > GROUND_Y - 80 ? 1 : 0.35);
-        amb[i] *= 1 + 0.3 * p.bellows;
-        amb[i] -= p.rain * 0.4;
-        // En contacto con una leña ardiendo conduce el calor (seca y prende aunque llueva).
-        if (touch[i] > 0) amb[i] = Math.max(amb[i], touch[i] * 2.4 + 0.2);
-      }
+      amb[i] += src + (p.logHeat - l.heatOut) * HEAT_SHARE;
+      amb[i] += p.bed * (0.55 + 0.6 * p.bellows) * (1 + 0.15 * p.size);
+      amb[i] *= 1 + 0.3 * p.bellows;
+      amb[i] -= p.rain * 0.4;
     }
 
     // --- Estados ---
@@ -646,7 +658,7 @@ export class Fire {
     const flick = 1 + 0.07 * Math.sin(this.time * 13) + 0.05 * Math.sin(this.time * 29 + 1) + Math.random() * 0.04;
     let total = 0;
     for (const p of this.pits) {
-      p.bed = Math.max(0, p.bed - dt * (0.012 * mods.bedDecay + p.rain * 0.08));
+      p.bed = Math.max(0, p.bed - dt * (0.012 * mods.bedDecay * p.perks.bedDecay + p.rain * 0.08));
       let heat = p.bed * 0.5 * (1 + p.bellows);
       let lx = 0, ly = 0, lw = 0;
       for (const l of logs) {
@@ -658,8 +670,8 @@ export class Fire {
       }
       for (const s of this.sources) if (Math.abs(s.x - p.x) < p.half) heat += 0.3;
       p.heat = heat;
-      // Un pozo grande puede sostener más intensidad (más leña, más llama) antes de saturar.
-      const target = clamp(heat / 3.5, 0, 1.4 * (1 + 0.3 * (p.hs - 1)));
+      // El calor sigue a la leña que arde: más lugares llenos y mejor madera rinden más. El tope solo frena excesos.
+      const target = clamp(heat / 3.5, 0, 5 * p.spec.tipis * p.roomy);
       p.intensity += (target - p.intensity) * Math.min(1, dt * 2.5);
       if (lw > 0.05) {
         p.lightX += (lx / lw - p.lightX) * Math.min(1, dt * 2);
@@ -706,10 +718,11 @@ export class Fire {
 
     // Viento: las llamas y el humo se inclinan.
     const lean = wind * 140 * Math.sin(this.time * 0.7) + wind * 90;
-    for (const e of [this.flames.S, this.flames.M, this.flames.L, this.flamesAlt.M, this.flamesAlt.L, this.flameCore, this.smoke]) e.accelerationX = lean;
+    const allFlames = Object.values(this.flameSets).flatMap((set) => Object.values(set));
+    for (const e of [...allFlames, this.smoke]) e.accelerationX = lean;
 
     // Con cielo claro las partículas aditivas se apagan (si no, se ven blancas).
-    for (const e of [this.flames.S, this.flames.M, this.flames.L, this.flamesAlt.M, this.flamesAlt.L, this.flameCore]) e.setAlpha(1 - 0.6 * bright);
+    for (const e of allFlames) e.setAlpha(1 - 0.6 * bright);
     let air = 1;
     for (const p of this.pits) if (p.burningLogs) air = Math.min(air, p.air);
     let draft = 0;
@@ -727,7 +740,7 @@ export class Fire {
 
     if (l.state === 'cruda') {
       // Inercia del pozo grande (+5% por nivel) y efecto de la estructura (tipi prende más rápido).
-      const warm = w.warm * mods.warm * (p ? (1 + 0.05 * p.size) / p.sIgnite : 1);
+      const warm = w.warm * mods.warm * (p ? ((1 + 0.05 * p.size) * p.perks.ignite) / p.sIgnite : 1);
       const k = amb > l.temp ? dt / warm : dt / (warm * 4);
       l.temp += (amb - l.temp) * Math.min(1, k);
       // La lluvia moja la leña a la intemperie (si el fuego la calienta, se seca más rápido de lo que se moja).
@@ -754,7 +767,7 @@ export class Fire {
       target *= 1 + 0.25 * bellows;
       l.flame += (target - l.flame) * Math.min(1, dt * 1.6);
       l.flame = Math.max(0, l.flame);
-      l.fuel -= dt * (0.45 + l.flame * 0.75) * (1 + wind * 0.4) * (p ? p.sFuel : 1);
+      l.fuel -= dt * (0.45 + l.flame * 0.75) * (1 + wind * 0.4) * (p ? p.sFuel * p.spec.burn : 1);
       l.heatOut = w.heat * l.flame;
       l.lowTime = l.flame < 0.22 ? l.lowTime + dt : 0;
       this.stats.llama++;
@@ -763,7 +776,7 @@ export class Fire {
     } else if (l.state === 'brasas') {
       const base = l.choked ? 1 : 0.35 + 0.65 * clamp(l.fuel / (l.maxFuel * 0.2), 0, 1);
       l.glowLevel = base * clamp(l.air, 0.3, 1.3) * (1 - l.rain * 0.4);
-      l.fuel -= dt * (l.choked ? 0.12 : 0.3) * (1 + bellows * 1.5 + l.rain * 2 + wind * 0.5) / mods.embers * (p ? p.sFuel : 1);
+      l.fuel -= dt * (l.choked ? 0.12 : 0.3) * (1 + bellows * 1.5 + l.rain * 2 + wind * 0.5) / mods.embers * (p ? p.sFuel * p.spec.burn : 1);
       l.heatOut = w.heat * 0.5 * l.glowLevel;
       l.flame = Math.max(0, l.flame - dt * 1.5);
       this.stats.brasas++;
@@ -868,7 +881,7 @@ export class Fire {
   syncLog(l, time) {
     l.syncGlow();
     let char;
-    if (l.state === 'cruda') char = clamp((l.temp - 0.15) * 0.6, 0, 0.25);
+    if (l.state === 'cruda') char = clamp((this.warmth(l) - 0.15) * 0.6, 0, 0.25);
     else char = clamp(0.3 + (1 - l.fuel / l.maxFuel) * 1.1, 0, 0.92);
     if (Math.abs(char - l.char) > 0.01 || l.burnTint !== l.burning) {
       l.burnTint = l.burning;
@@ -882,8 +895,8 @@ export class Fire {
     } else if (l.state === 'brasas') {
       a = l.glowLevel * (0.55 + 0.25 * Math.sin(time * 0.0025 + l.phase) + 0.08 * Math.sin(time * 0.011 + l.phase * 3));
       color = 0xff4a12;
-    } else if (l.temp > 0.35) {
-      a = (l.temp - 0.35) * 0.4;
+    } else if (this.warmth(l) > 0.35) {
+      a = (this.warmth(l) - 0.35) * 0.4;
     }
     l.glow.setAlpha(Math.min(1, a * (l.cone ? 1 : 0.8)));
     // Carbonizado progresivo y grietas incandescentes (solo troncos; se crean cuando empiezan a arder).
@@ -919,13 +932,14 @@ export class Fire {
       const cap = p ? (() => { const n = 5 + 2 * p.size; return Math.min(1, n / Math.max(n, p.burningLogs || 0)); })() : 1; // el brillo no crece con la cantidad de leña
       const rate = cap * 50 * l.flame * (Math.max(60, l.length) / 100) * w.flameRate * (1 + 0.7 * boost) * this.budget * (1 + 0.3 * dq);
       l.acc.flame += rate * dt;
-      const em = this.flames[w.flame];
-      const alt = this.flamesAlt[w.flame];
+      const set = this.flameSet(p);
+      const em = set[w.flame];
+      const alt = set[`alt${w.flame}`];
       while (l.acc.flame >= 1) {
         l.acc.flame -= 1;
         const q = l.pointAlong(0.1 + rnd() * 0.8);
         (alt && rnd() < 0.5 ? alt : em).emitParticleAt(q.x + (rnd() - 0.5) * 4, q.y - l.thickness * 0.85);
-        if (rnd() < 0.08) this.flameCore.emitParticleAt(q.x + (rnd() - 0.5) * 3, q.y - l.thickness * 0.9);
+        if (rnd() < 0.08) set.core.emitParticleAt(q.x + (rnd() - 0.5) * 3, q.y - l.thickness * 0.9);
       }
       if (rnd() < w.crackle * l.flame * dt) {
         const strength = 0.4 + 0.6 * Math.min(1, l.flame);
@@ -944,13 +958,13 @@ export class Fire {
         while (l.acc.flame >= 1) {
           l.acc.flame -= 1;
           const q = l.pointAlong(rnd());
-          this.flames.S.emitParticleAt(q.x, q.y - l.thickness * 0.3);
+          this.flameSet(p).S.emitParticleAt(q.x, q.y - l.thickness * 0.3);
         }
       }
     }
     // Humo.
     let smoke = 0;
-    if (l.state === 'cruda' && l.temp > 0.2) smoke = (l.temp - 0.2) * 5 * w.smoke;
+    if (l.state === 'cruda' && this.warmth(l) > 0.2) smoke = (this.warmth(l) - 0.2) * 5 * w.smoke;
     else if (l.state === 'llama') smoke = w.smoke * (0.6 + 6 * Math.max(0, 1 - l.air));
     else if (l.state === 'brasas') smoke = (l.choked ? 3.5 : 0.6) * (0.4 + l.glowLevel * 0.6);
     if (p) smoke *= 1 - 0.5 * this.draftOf(p);

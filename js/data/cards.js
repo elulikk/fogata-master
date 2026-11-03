@@ -3,6 +3,9 @@
 // `rarity`: 'comun' | 'rara' | 'epica'. `effect(n)` (n = nivel actual) devuelve
 // { label, before, after } para mostrar qué cambia al elegirla.
 
+import { BASE_PER_RING } from '../utils/slots.js';
+import { HEAT } from '../utils/heat.js';
+
 export const RARITY_WEIGHT = { comun: 70, rara: 25, epica: 5 };
 
 const pct = (v) => `${v > 0 ? '+' : ''}${Math.round(v)}%`;
@@ -15,17 +18,26 @@ const mul = (label, k) => (n) => ({
   after: pct((Math.pow(k, n + 1) - 1) * 100),
 });
 const flag = (label) => () => ({ label, before: '—', after: 'activo' });
+// Lugar de más para un tamaño de leña: por tipi, en todas las fogatas.
+const hueco = (cut, rarity, max, icon, one, plural) => ({
+  id: `hueco_${cut}`, rarity, icon, name: `Hueco para ${plural}`, desc: `A cada tipi de tus fogatas le entra ${one} más.`, max,
+  effect: (n) => ({ label: `Lugares de ${plural} por tipi`, before: `${BASE_PER_RING + n}`, after: `${BASE_PER_RING + n + 1}` }),
+  apply: (g) => g.refreshSlots(),
+});
 
 export const CARDS = [
-  { id: 'calor', rarity: 'comun', icon: '🔥', name: 'Brasas generosas', desc: '+15% de calor de todas las fogatas.', max: 8, effect: lin('Calor', 15) },
+  hueco('rama', 'comun', 4, '🌿', 'una rama', 'ramas'),
+  hueco('lena', 'rara', 3, '🪵', 'una leña', 'leñas'),
+  hueco('tronco', 'rara', 2, '🌳', 'un tronco', 'troncos'),
+  { id: 'calor', rarity: 'comun', icon: HEAT, name: 'Brasas generosas', desc: '+15% de calor de todas las fogatas.', max: 8, effect: lin('Calor', 15) },
   { id: 'duracion', rarity: 'comun', icon: '🪵', name: 'Leña bien curada', desc: 'La leña dura 15% más.', max: 5, effect: lin('Duración de la leña', 15) },
   { id: 'brasas', rarity: 'comun', icon: '🟠', name: 'Brasas tercas', desc: 'Las brasas duran 30% más.', max: 5, effect: lin('Duración de brasas', 30) },
   { id: 'yesca', rarity: 'comun', icon: '✨', name: 'Yesca', desc: 'La leña prende más rápido y con menos calor.', max: 4, effect: mul('Calor que pide para prender', 0.8) },
   { id: 'tiraje', rarity: 'rara', icon: '💨', name: 'Buen tiraje', desc: 'Las fogatas tiran mejor: 10% más de aire y más llama.', max: 5, effect: lin('Aire', 10) },
   { id: 'chispazos', rarity: 'comun', icon: '💫', name: 'Chispas de la suerte', desc: 'Salen 30% más chispazos.', max: 5, requires: (s) => s.unlocked.chispazos, effect: lin('Chispazos', 30) },
   { id: 'iman', rarity: 'comun', icon: '🧲', name: 'Manos rápidas', desc: 'Juntás chispazos desde más lejos.', max: 3, requires: (s) => s.unlocked.chispazos, effect: lin('Alcance', 40) },
-  { id: 'canasta', rarity: 'comun', icon: '🧺', name: 'Ojo de leñador', desc: 'Traés 25% más leña del bosque.', max: 5, requires: (s) => s.unlocked.bosque, effect: lin('Leña del bosque', 25) },
-  { id: 'botas', rarity: 'comun', icon: '🥾', name: 'Paso firme', desc: 'Los viajes al bosque son 15% más rápidos.', max: 4, requires: (s) => s.unlocked.bosque, effect: mul('Duración del viaje', 0.85) },
+  { id: 'canasta', rarity: 'comun', icon: '🧺', name: 'Ojo de leñador', desc: 'Cada entrega trae 15% más leña.', max: 5, requires: (s) => s.bought.ayudante || s.cards.sabueso, effect: lin('Leña por entrega', 15) },
+  { id: 'botas', rarity: 'comun', icon: '🥾', name: 'Paso firme', desc: 'Las entregas de leña llegan 15% más seguido.', max: 4, requires: (s) => s.bought.ayudante || s.cards.sabueso, effect: mul('Tiempo entre entregas', 0.85) },
   { id: 'regateo', rarity: 'comun', icon: '🤝', name: 'Regateo', desc: 'El mercachifle te cobra 10% menos.', max: 4, requires: (s) => s.unlocked.tienda, effect: mul('Precios', 0.9) },
   { id: 'secado', rarity: 'comun', icon: '♨️', name: 'Secado al calor', desc: 'La madera húmeda se seca 40% más rápido.', max: 4, effect: lin('Velocidad de secado', 40) },
   { id: 'piedras', rarity: 'comun', icon: '🪨', name: 'Piedras refractarias', desc: 'El lecho de brasas se enfría 30% más lento.', max: 4, effect: mul('Enfriado del lecho', 0.7) },
@@ -35,10 +47,10 @@ export const CARDS = [
     id: 'cenizas', rarity: 'comun', icon: '🌫️', name: 'Lecho cálido', desc: 'El lecho de brasas de cada pozo suma calor.', max: 4,
     effect: (n) => ({ label: 'Calor por lecho (a pleno)', before: `+${(0.5 * n).toFixed(1)}/s`, after: `+${(0.5 * (n + 1)).toFixed(1)}/s` }),
   },
-  { id: 'resina', rarity: 'comun', icon: '🍯', name: 'Resina', desc: 'La leña dura 10% más y el bosque da más piñas.', max: 4, requires: (s) => s.unlocked.bosque, effect: lin('Duración y piñas', 10) },
+  { id: 'resina', rarity: 'comun', icon: '🍯', name: 'Resina', desc: 'La leña dura 10% más y las entregas traen más piñas.', max: 4, effect: lin('Duración y piñas', 10) },
   {
-    id: 'sabueso', rarity: 'comun', icon: '🐕', name: 'Sabueso', desc: 'Un perro te trae leña del bosque cada tanto.', max: 3, requires: (s) => s.unlocked.bosque,
-    effect: (n) => ({ label: 'Viaje del sabueso', before: n ? `cada ${Math.round(60 / (1 + 0.5 * (n - 1)))} s` : '—', after: `cada ${Math.round(60 / (1 + 0.5 * n))} s` }),
+    id: 'sabueso', rarity: 'comun', icon: '🐕', name: 'Sabueso', desc: 'Un perro te trae leña cada tanto.', max: 3,
+    effect: (n) => ({ label: 'Entrega del sabueso', before: n ? `cada ${Math.round(60 / (1 + 0.5 * (n - 1)))} s` : '—', after: `cada ${Math.round(60 / (1 + 0.5 * n))} s` }),
   },
   {
     id: 'incendio', rarity: 'rara', icon: '🌋', name: 'Incendio', desc: 'Cada leño ardiendo de más (desde el 3.º) sube el calor 5%.', max: 3,
@@ -57,7 +69,7 @@ export const CARDS = [
     effect: mul('Costo de agrandar', 0.9),
   },
   {
-    id: 'chimenea', rarity: 'rara', icon: '🏠', name: 'Chimenea', desc: 'Las fogatas armadas (leña en los tres anillos) rinden 50% más.', max: 3, requires: (s) => s.unlocked.construir,
+    id: 'chimenea', rarity: 'rara', icon: '🏠', name: 'Chimenea', desc: 'Las fogatas armadas (leña de los tres tamaños) rinden 50% más.', max: 3, requires: (s) => s.unlocked.construir,
     effect: lin('Bonus de estructura', 50),
   },
   {

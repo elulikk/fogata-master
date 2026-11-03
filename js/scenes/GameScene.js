@@ -1,25 +1,28 @@
 // Escena principal: las fogatas, la pila de leña, el clima y la economía.
 
-import { WOODS, SPECIES, SPECIES_ORDER, CUTS, CUT_ORDER, woodKey, rollSpecies } from '../data/woods.js';
-import { MILESTONES, levelThreshold } from '../data/progress.js';
-import { allItems } from '../data/shop.js';
+import { WOODS, SPECIES, SPECIES_ORDER, CUTS, CUT_ORDER, woodKey } from '../data/woods.js';
+import { MILESTONES, milestoneDue, levelThreshold } from '../data/progress.js';
+import { allItems, woodOpen, MARKET_RECOVER } from '../data/shop.js';
+import { SUPPLIERS } from '../data/supply.js';
 import { CARDS, rollCards } from '../data/cards.js';
 import { META } from '../data/meta.js';
+import { toolOf } from '../data/tools.js';
 import { stepNight, nightGoal, dawnAsh, DAY, FIRST_DAY_LEFT } from '../data/nights.js';
 import { ACHIEVEMENTS, rewardLabel } from '../data/achievements.js';
-import { rollForestEvent, forestEventLoot } from '../data/forest.js';
 import { Log } from '../objects/Log.js';
 import { Fire } from '../objects/Fire.js';
 import { Pit } from '../objects/Pit.js';
 import { Weather } from '../objects/Weather.js';
 import { createTextures, W, H, GROUND_Y, layerTint, SKY_KEYS } from '../gfx/textures.js';
+import { createHearthTextures } from '../gfx/hearths.js';
 import { pointSegDist } from '../utils/geom.js';
 import { nearestFree, TIER_TINT } from '../utils/slots.js';
 import { SlotController } from './SlotController.js';
 import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE, STRUCTURE, capacityOf } from '../data/sizes.js';
 
 const RACK = { left: 18, right: 232, bottom: GROUND_Y - 4 };
-// Textos que hablan de la pila (lluvia, +N del bosque): se corren a la derecha del estante para no taparlo.
+const RACK_MIN_TOP = 214; // techo de la pila: su título queda debajo del HUD de calor
+// Textos que hablan de la pila (lluvia, +N de una entrega): se corren a la derecha del estante para no taparlo.
 const RACK_TEXT_X = RACK.right + 90;
 // Números de combo visibles a la vez; los que pasan del tope no se muestran (el calor igual se suma).
 const COMBO_TEXT_CAP = 6;
@@ -36,6 +39,7 @@ export class GameScene extends Phaser.Scene {
     const data = this.state.data;
 
     createTextures(this);
+    createHearthTextures(this);
     // Fondo en capas (depth 0..0.5, debajo de todo lo demás); el cielo de amanecer se funde entre cielo y colinas.
     this.skyLayer = this.add.image(0, 0, 'bg-sky').setOrigin(0).setDepth(0);
     // Ciclo de luz: cielos apilados (noche → noche profunda → atardecer → día) con alpha normalizado.
@@ -43,8 +47,8 @@ export class GameScene extends Phaser.Scene {
       [ph, this.add.image(0, 0, SKY_KEYS[ph]).setOrigin(0).setDepth(d).setAlpha(0).setScale(ph === 'deep' ? 1 : 2)])];
     this.skyW = null; // pesos suavizados por fase (se inicializan en el primer updateLight)
     this.dawnSky = this.add.image(0, 0, 'sky-dawn').setOrigin(0).setScale(2).setDepth(0.05).setAlpha(0);
-    // Rayos del sol naciente (x≈435, y≈546): el origen queda en el sol para que el giro sea alrededor de él.
-    this.dawnRays = this.add.image(W * 0.34, 546, 'dawn-rays').setScale(2).setOrigin(0.34, 546 / H).setDepth(0.06).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
+    // Rayos del sol naciente (x≈435, 104 px sobre el piso): el origen queda en el sol para que el giro sea alrededor de él.
+    this.dawnRays = this.add.image(W * 0.34, GROUND_Y - 104, 'dawn-rays').setScale(2).setOrigin(0.34, (GROUND_Y - 104) / H).setDepth(0.06).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0);
     this.parallax = [['hills', 'bg-hills-lit', 0.1, 4], ['far', 'bg-trees-far-lit', 0.2, 8], ['mid', 'bg-trees-mid-lit', 0.3, 13], ['near', 'bg-trees-near-lit', 0.4, 20]].map(([layer, key, depth, amp]) =>
       ({ layer, amp, img: this.add.image(W / 2, H / 2, key).setScale(1.04).setDepth(depth) }));
     this.groundLayer = this.add.image(0, 0, 'bg-ground-lit').setOrigin(0).setDepth(0.5);
@@ -63,12 +67,12 @@ export class GameScene extends Phaser.Scene {
 
     this.orbs = [];
     this.drag = null;
-    this.trip = null;
     this.paused = false;
     this.bellowsPit = null;
     this.lastPump = 0;
     this.rate = 0;
-    this.helperTimers = { ayudante: 0, secadero: 0, sabueso: 0 };
+    this.supplyTimers = {}; // avance (0..1) de cada proveedor de data/supply.js
+    this.demandTimer = 0;
     this.pendingLevel = null;
     this.resetting = false;
     this.nightTimer = 0;
@@ -104,7 +108,7 @@ export class GameScene extends Phaser.Scene {
       progress: data.totalCalor > 120 || (data.level | 0) > 1 || Object.keys(data.unlocked).length > 0,
       size: Math.max(0, ...data.pits.map((q) => q.size | 0)),
     });
-    this.state.onStale = () => this.ui.forestEvent?.({
+    this.state.onStale = () => this.ui.eventCard?.({
       icon: '⚠️',
       title: 'Otra pestaña guardó esta partida',
       text: 'Esta pestaña ya no guarda para no pisar el progreso. ¿Querés seguir acá y pisar el guardado?',
@@ -172,7 +176,7 @@ export class GameScene extends Phaser.Scene {
 
   layoutRack() {
     const seen = this.state.data.seenWood;
-    const rows = SPECIES_ORDER.filter((sp) => seen[sp]);
+    const rows = SPECIES_ORDER.filter((sp) => seen[sp] || woodOpen(this.state.data, sp));
     if (seen.pina) rows.push('pina');
     const sig = rows.join(',');
     if (sig === this.rackSig) return;
@@ -184,7 +188,8 @@ export class GameScene extends Phaser.Scene {
     const g = this.rackGfx;
     g.clear();
 
-    const ROW_H = 56;
+    // Con muchas especies las filas se aprietan para que la pila no suba hasta el HUD.
+    const ROW_H = Math.min(56, Math.floor((RACK.bottom - RACK_MIN_TOP - 26) / rows.length));
     const top = RACK.bottom - rows.length * ROW_H - 26;
     const cw = (RACK.right - RACK.left - 8) / CUT_ORDER.length;
     const textStyle = (size, color) => ({ fontFamily: 'Fredoka, system-ui', fontSize: `${size}px`, color, stroke: '#000', strokeThickness: 3 });
@@ -216,8 +221,15 @@ export class GameScene extends Phaser.Scene {
         const scale = Math.min(1, (cw - 8) / wood.length);
         const img = this.add.image(x + cw / 2, bottom - 24, `log-${key}`).setScale(scale).setDepth(6);
         const label = this.add.text(x + cw - 2, bottom - 7, '', textStyle(13, '#f3e6d3')).setOrigin(1, 1).setDepth(7);
+        // El + compra un manojo ahí mismo: la pila es también el mostrador del mercachifle.
+        const item = allItems(this.state.data).find((it) => it.key === key);
+        const plus = item ? this.add.text(x + cw - 3, bottom - ROW_H + 4, '+', textStyle(18, '#ffd36b')).setOrigin(1, 0).setDepth(7).setVisible(false) : null;
         this.rackItems.push(img, label);
-        this.cells.push({ key, rect: new Phaser.Geom.Rectangle(x, bottom - ROW_H, cw, ROW_H), img, label, count: -1 });
+        if (plus) this.rackItems.push(plus);
+        this.cells.push({
+          key, rect: new Phaser.Geom.Rectangle(x, bottom - ROW_H, cw, ROW_H), img, label, count: -1, item, plus,
+          plusRect: new Phaser.Geom.Rectangle(x + cw - 26, bottom - ROW_H, 26, 26),
+        });
       });
     });
   }
@@ -226,6 +238,11 @@ export class GameScene extends Phaser.Scene {
     this.layoutRack();
     const res = this.state.res;
     for (const c of this.cells) {
+      if (c.plus) {
+        const open = c.item.requires(this.state.data);
+        c.plus.setVisible(!!open);
+        if (open) c.plus.setAlpha(this.state.canPay(c.item.cost(this.state.priceLevel(c.item))) ? 1 : 0.35);
+      }
       const n = res[c.key] || 0;
       if (n === c.count) continue;
       c.count = n;
@@ -238,6 +255,22 @@ export class GameScene extends Phaser.Scene {
     return this.cells.find((c) => c.rect.contains(x, y));
   }
 
+  // Compra un manojo de esa madera desde la pila. Devuelve false si todavía no se vende.
+  buyFromPile(cell) {
+    const it = cell.item;
+    if (!it || !it.requires(this.state.data)) return false;
+    const cost = it.cost(this.state.priceLevel(it));
+    if (!this.state.canPay(cost)) {
+      const missing = Math.ceil(this.state.price(cost).calor - this.state.data.calor);
+      this.floatText(cell.rect.centerX, cell.rect.y - 8, `Te faltan ${missing} de calor`, '#ff9a80');
+      this.audio.overflowReject();
+      return true;
+    }
+    this.buy(it.id);
+    this.floatText(cell.rect.centerX, cell.rect.y - 8, `+${it.bundle}`, '#cfe8b0');
+    return true;
+  }
+
   // Ficha de la madera al lado de la pila: qué es y cómo rinde.
   showRackInfo(cell) {
     if (!cell) return this.rackInfo.setVisible(false);
@@ -245,7 +278,9 @@ export class GameScene extends Phaser.Scene {
     const bars = SPECIES[wood.species]?.bars;
     const dots = (n) => '●'.repeat(n) + '○'.repeat(5 - n);
     const stats = bars ? `\nPrende ${dots(bars.prende)}\nDura   ${dots(bars.dura)}\nCalor  ${dots(bars.calor)}` : '';
-    this.rackInfo.setText(`${wood.name}\n${wood.desc}${stats}`)
+    const it = cell.item?.requires(this.state.data) ? cell.item : null;
+    const offer = it ? `\n+ ${it.bundle} por ${this.state.price(it.cost(this.state.priceLevel(it))).calor} de calor` : '';
+    this.rackInfo.setText(`${wood.name}\n${wood.desc}${wood.lights ? `\n${wood.lights}.` : ''}${stats}${offer}`)
       .setPosition(RACK.right + 12, Math.min(cell.rect.y, GROUND_Y - 150)).setVisible(true);
     return this.rackInfo;
   }
@@ -274,7 +309,7 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointerdown', (p) => {
       this.audio.unlock();
       this.touch = !!p.wasTouch;
-      if (this.paused || this.trip || this.drag || p.button === 2) return;
+      if (this.paused || this.drag || p.button === 2) return;
       const x = p.worldX;
       const y = p.worldY;
       this.hoverLog = null;
@@ -282,7 +317,7 @@ export class GameScene extends Phaser.Scene {
       // En touch no hay "pasar el mouse": el toque también junta los chispazos cercanos.
       if (this.touch) this.collectOrbsNear(x, y);
 
-      // Sobre leña sin prender: si el puntero se mueve se saca de su lugar; un toque corto prende un fósforo.
+      // Sobre leña sin prender: si el puntero se mueve se saca de su lugar; un toque corto usa la herramienta.
       const log = this.logAt(x, y);
       if (log) {
         this.pending = { log, pid: p.id, x, y };
@@ -291,6 +326,8 @@ export class GameScene extends Phaser.Scene {
 
       const cell = this.cellAt(x, y);
       if (cell) {
+        const wantsBuy = cell.plusRect.contains(x, y) || !(this.state.res[cell.key] > 0);
+        if (wantsBuy && this.buyFromPile(cell)) return;
         if (this.state.res[cell.key] > 0) {
           this.startDrag(cell.key, p);
           if (this.touch) this.showRackInfo(cell);
@@ -306,7 +343,7 @@ export class GameScene extends Phaser.Scene {
         this.pump(pit);
         return;
       }
-      this.strikeMatch(x, y);
+      this.useTool(x, y);
     });
 
     this.input.on('pointermove', (p) => {
@@ -345,7 +382,7 @@ export class GameScene extends Phaser.Scene {
       if (this.pending && (!p || p.id === this.pending.pid)) {
         const pd = this.pending;
         this.pending = null;
-        if (this.time.now - this.down.t < 600) this.strikeMatch(pd.x, pd.y);
+        if (this.time.now - this.down.t < 600) this.useTool(pd.x, pd.y);
         return;
       }
       this.endDrag();
@@ -355,7 +392,7 @@ export class GameScene extends Phaser.Scene {
 
     this.input.keyboard.addCapture('SPACE');
     this.input.keyboard.on('keydown-SPACE', () => {
-      if (!this.state.bought.fuelle || this.paused || this.trip) return;
+      if (!this.state.bought.fuelle || this.paused) return;
       const pit = this.fire.nearestPit(this.input.activePointer.worldX);
       if (pit && this.fire.pitIsLit(pit)) {
         if (!this.bellowsPit) this.pump(pit);
@@ -406,7 +443,7 @@ export class GameScene extends Phaser.Scene {
     d.lpy = d.py;
   }
 
-  // cancel: la soltó el sistema (modal, viaje), no el jugador: siempre vuelve a la pila.
+  // cancel: la soltó el sistema (un modal), no el jugador: siempre vuelve a la pila.
   endDrag(cancel = false) {
     const d = this.drag;
     this.showRackInfo(null);
@@ -438,30 +475,46 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  strikeMatch(x, y) {
-    // Solo gasto un fósforo si hay algo para prender cerca.
-    const near = this.fire.logs.some((l) => l.state === 'cruda' && pointSegDist(x, y, ...l.endpoints()) < 70);
-    if (!near) return;
+  // Elige la herramienta de la barra de abajo (lo llama la UI).
+  selectTool(id) {
+    if (this.state.data.tool === id) return;
+    this.state.data.tool = id;
+    this.audio.slotTick();
+  }
+
+  // Usa la herramienta elegida sobre la leña sin prender que haya cerca.
+  useTool(x, y) {
+    const near = this.fire.logs.filter((l) => l.state === 'cruda' && pointSegDist(x, y, ...l.endpoints()) < 70);
+    if (!near.length) return;
+    const tool = toolOf(this.state.data.tool);
     const res = this.state.res;
+    if (tool.res && !(res[tool.res] > 0)) {
+      this.floatText(x, y - 20, `No te quedan: ${tool.name.toLowerCase()}`, '#ff9a80');
+      return;
+    }
+    // Si no alcanza para nada de lo que hay cerca, ni se gasta.
+    if (!near.some((l) => this.fire.canLight(l, tool.heat, tool.ttl))) {
+      this.floatText(x, y - 20, 'Muy grueso para esto: prendé algo más chico', '#ffb36b');
+      return;
+    }
+    if (tool.res) this.state.add(tool.res, -1);
     const pit = this.fire.pitAt(x, y);
     const rain = pit ? pit.rain : this.weather.rain;
-    if (res.fosforo > 0) {
-      res.fosforo--;
-      if (Math.random() < rain * 0.5) {
-        this.audio.match(false);
-        this.fire.sparkAt({ x, y }, 3);
-        this.floatText(x, y - 20, 'La lluvia apagó el fósforo', '#8fb8e8');
-        return;
-      }
-      this.audio.match(true);
-      this.fire.strike(x, y, 0.8, 1.8);
-      if (res.fosforo === 0) this.ui.toast('Te quedaste sin fósforos. Podés probar con el pedernal (cuesta más).', 'bad');
-    } else {
-      const ok = Math.random() < 0.3 * (1 - rain * 0.6);
-      this.audio.flint(ok);
-      this.fire.sparkAt({ x, y }, ok ? 8 : 4);
-      if (ok) this.fire.strike(x, y, 0.5, 0.6, 35);
+    const ok = Math.random() < tool.odds * (1 - rain * tool.rainOdds);
+    this.audio[tool.sound](ok);
+    this.fire.sparkAt({ x, y }, ok ? tool.sparks : Math.ceil(tool.sparks / 2));
+    if (ok) this.fire.strike(x, y, tool.heat, tool.ttl, tool.r);
+    else if (tool.res) this.floatText(x, y - 20, 'La lluvia lo apagó', '#8fb8e8');
+    if (tool.res && !res[tool.res]) {
+      this.state.data.tool = 'pedernal';
+      this.ui.toast('Te quedaste sin fósforos: pasaste al pedernal (cuesta más).', 'bad');
     }
+  }
+
+  // Una carta cambió cuántos lugares entran: rehace los de todos los pozos (la leña sigue donde estaba).
+  refreshSlots() {
+    this.state.recompute();
+    for (const p of this.pitObjs) p.layoutSlots();
   }
 
   pump(pit) {
@@ -488,7 +541,7 @@ export class GameScene extends Phaser.Scene {
       this.ui.tutorial('snap');
       this.firstTime('pit', e.slot.x, e.slot.y);
     });
-    // Fogata armada: los tres anillos con leña. Se arma y se desarma seguido (la leña se va achicando),
+    // Fogata armada: leña de los tres tamaños. Se arma y se desarma seguido (la leña se va achicando),
     // así que se festeja solo de vez en cuando.
     ev.on('structure:formed', ({ pit, type, quality }) => {
       this.ui.tutorial('structure:tipi');
@@ -499,7 +552,7 @@ export class GameScene extends Phaser.Scene {
       pit.snapChain = null;
       this.audio.structureFormed(type, pieces);
       this.fire.structureBurst(pit, type, quality);
-      if (this.seenOnce('struct_tipi') === false) this.ui.toast('🔺 Fogata armada: con leña en los tres anillos tira mejor, prende más rápido y da más calor.', 'unlock', 7000);
+      if (this.seenOnce('struct_tipi') === false) this.ui.toast('🔺 Fogata armada: con ramas, leña y troncos tira mejor, prende más rápido y da más calor.', 'unlock', 7000);
       if (!this.fx) return;
       this.cameras.main.flash(160, 255, 215, 130, false);
       const pct = Math.round((STRUCTURE.tipi.calor || 0) * quality * 100);
@@ -572,7 +625,7 @@ export class GameScene extends Phaser.Scene {
   // Etiquetas de la UI sobre cada pozo (coordenadas del mundo; la UI las escala).
   pitInfoList() {
     return this.pitObjs.map((p, i) => ({
-      i, screenX: p.x, screenY: GROUND_Y + 18, size: p.size, sizeName: SIZES[p.size]?.name,
+      i, screenX: p.x, screenY: GROUND_Y + 6, size: p.size, sizeName: SIZES[p.size]?.name,
       load: this.fire.slotted(p).length, cap: p.slotList.length, structure: p.structure,
       bonus: p.structure.type === 'tipi' ? STRUCTURE.tipi.calor * p.structure.quality : 0,
     }));
@@ -590,13 +643,15 @@ export class GameScene extends Phaser.Scene {
       this.fire.emberRise(900 + 900 * k);
       this.cameras.main.flash(220, 255, 190, 110, false);
     });
-    this.worldMsg(pit, 'Fogata más grande', '#ffd36b', 1.4, 2, 2200);
+    this.worldMsg(pit, `¡${SIZES[size].name}!`, '#ffd36b', 1.5, 2, 2600);
+    const perk = SIZES[size].perk?.text;
+    if (perk) this.ui.toast(`🔨 ${SIZES[size].name}. ${perk}`, 'unlock', 7000);
   }
 
   setupFireEvents() {
     this.fire.onCrackle = (x, y, strength, log) => {
       if (!this.state.unlocked.chispazos || !log.pit) return;
-      if (Math.random() < 0.09 * this.state.mods.orbs * strength) this.spawnOrb(x, y);
+      if (Math.random() < 0.09 * this.state.mods.orbs * log.pit.perks.orbs * strength) this.spawnOrb(x, y);
     };
     this.fire.onIgnite = (log) => {
       // Fire ya hace el sonido, el pulso de luz y las chispas; acá solo la cámara.
@@ -659,7 +714,7 @@ export class GameScene extends Phaser.Scene {
         this.orbs.splice(i, 1);
       }
     }
-    if (!this.paused && !this.trip && p) this.collectOrbsNear(p.worldX, p.worldY);
+    if (!this.paused && p) this.collectOrbsNear(p.worldX, p.worldY);
   }
 
   collectOrbsNear(x, y) {
@@ -716,134 +771,39 @@ export class GameScene extends Phaser.Scene {
     this.floatText(x + (k - 2) * 14, y, text, color, scale, { combo: true, dur: 850, rise: 26 });
   }
 
-  // --- Bosque y ayudantes ---
+  // --- Proveedores de leña ---
 
-  startTrip() {
-    if (this.trip || this.paused) return;
-    this.endDrag(true);
-    this.ui.closePanel();
-    this.trip = { t: 0, dur: 7 * this.state.mods.trip };
-    this.audio.steps();
+  // Texto al lado de la pila; los que caen juntos se abren en cascada.
+  pileText(text, color) {
+    const i = this.pileTextN = ((this.pileTextN || 0) + 1) % 6;
+    this.floatText(RACK_TEXT_X, 300 - i * 18, text, color);
   }
 
-  // Reparte `n` piezas de un tamaño entre las especies que ya da el bosque.
-  addByCut(loot, cut, n) {
-    for (let i = 0, t = Math.round(n); i < t; i++) {
-      const k = woodKey(rollSpecies(this.state.totalCalor), cut);
-      loot[k] = (loot[k] || 0) + 1;
-    }
-  }
-
-  rollLoot(scale = 1, dry = false) {
-    const s = this.state;
-    const m = s.mods.loot * scale;
-    const r = Math.random;
-    const loot = {};
-    const add = (k, n) => { n = Math.round(n); if (n > 0) loot[k] = (loot[k] || 0) + n; };
-    this.addByCut(loot, 'rama', (4 + r() * 4) * m);
-    if (r() < 0.6) this.addByCut(loot, 'lena', (1 + r()) * m);
-    if (s.bought.hacha) this.addByCut(loot, 'tronco', (1 + r() * 2) * m);
-    else if (r() < 0.35) this.addByCut(loot, 'tronco', 1);
-    if (s.totalCalor >= 1000 && s.res.pina < 8 && r() < 0.4) add('pina', (1 + r() * 2) * m * s.mods.pinas);
-    if (scale >= 1 && r() < (s.res.fosforo < 3 ? 0.5 : s.res.fosforo < 6 ? 0.12 : 0.03)) add('fosforo', 1 + (r() < 0.3 ? 1 : 0));
-    // Con lluvia, las ramas y la leña que juntás vienen mojadas.
-    const rain = this.weather.rain;
-    if (rain > 0.1 && !dry) {
-      for (const k of Object.keys(loot)) {
-        const w = WOODS[k];
-        if (!w || w.wet || w.shape === 'cone' || w.cut === 'tronco') continue;
-        const wet = Math.round(loot[k] * rain * 0.5);
-        if (wet <= 0) continue;
-        loot[k] -= wet;
-        const h = woodKey('humeda', w.cut);
-        loot[h] = (loot[h] || 0) + Math.max(1, Math.round(wet / 2));
-      }
-    }
-    return loot;
-  }
-
-  // Vuelta del bosque propio: botín y, a veces, un evento (ver data/forest.js).
-  finishTrip() {
-    const ev = rollForestEvent(this.state.data);
-    const loot = this.rollLoot(1, !!ev?.dry);
-    if (ev) this.applyForestEvent(ev, loot);
-    this.giveLoot(loot, 'vos');
-  }
-
-  applyForestEvent(ev, loot) {
-    const s = this.state;
-    if (ev.lootScale) for (const k of Object.keys(loot)) loot[k] = Math.max(0, Math.round(loot[k] * ev.lootScale));
-    for (const [k, n] of Object.entries(forestEventLoot(ev, s.mods.loot))) {
-      if (CUTS[k]) this.addByCut(loot, k, n);
-      else loot[k] = (loot[k] || 0) + n;
-    }
-    let text = ev.text;
-    if (ev.calorSecs) {
-      const gift = Math.max(5, Math.round(this.rate * ev.calorSecs));
-      s.gainCalor(gift);
-      text += ` +${gift} 🔥`;
-    }
-    s.meta.stats.forestEvents++;
-    const kind = ev.id === 'zorro' ? 'animal' : ev.id === 'viajero' ? 'viajero' : 'hallazgo';
-    this.audio.forestEvent?.(kind);
-    // Flash a mitad de intensidad (antes 255, 230, 150): color más oscuro, menos lavado.
-    if (this.fx && kind === 'hallazgo') this.cameras.main.flash(220, 128, 115, 75, false);
-    this.ui.forestEvent?.({ icon: ev.icon, title: ev.name, text });
-    this.events.emit('forest:event', ev);
-  }
-
-  giveLoot(loot, who) {
-    const parts = [];
-    let i = 0;
+  giveLoot(loot) {
     for (const [k, n] of Object.entries(loot)) {
       if (!n) continue;
       this.state.add(k, n);
-      const label = `+${n} ${k === 'fosforo' ? 'fósforos' : WOODS[k].name.toLowerCase()}`;
-      parts.push(label);
-      this.time.delayedCall(i * 160, () => this.floatText(RACK_TEXT_X, 280 - i * 4, label, '#cfe8b0'));
-      i++;
+      this.pileText(`+${n} ${k === 'fosforo' ? 'fósforos' : WOODS[k].name.toLowerCase()}`, '#cfe8b0');
     }
-    if (who === 'vos') this.ui.toast(`Volviste del bosque: ${parts.join(', ') || 'nada'}.`, 'info', 3500);
   }
 
-  updateTripAndHelpers(dt) {
-    if (this.trip) {
-      this.trip.t += dt;
-      if (this.trip.t >= this.trip.dur) {
-        this.trip = null;
-        this.state.data.trips++;
-        this.audio.chop();
-        this.finishTrip();
-      }
+  updateSupply(dt) {
+    const { data, mods, res } = this.state;
+    const b = data.bought;
+    for (const sup of SUPPLIERS) {
+      const level = sup.level(data, mods);
+      if (!level || (sup.ready && !sup.ready(this))) continue;
+      const t = (this.supplyTimers[sup.id] || 0) + dt / sup.every(level, mods);
+      this.supplyTimers[sup.id] = t >= 1 ? 0 : t;
+      if (t >= 1) sup.run(this, level);
     }
-    const b = this.state.bought;
-    if (b.ayudante) {
-      const every = 30 / (1 + 0.5 * (b.ayudante - 1));
-      this.helperTimers.ayudante += dt / every;
-      if (this.helperTimers.ayudante >= 1) {
-        this.helperTimers.ayudante = 0;
-        this.giveLoot(this.rollLoot(0.6), 'ayudante');
-      }
-    }
-    const hound = this.state.mods.hound;
-    if (hound) {
-      const every = 60 / (1 + 0.5 * (hound - 1));
-      this.helperTimers.sabueso += dt / every;
-      if (this.helperTimers.sabueso >= 1) {
-        this.helperTimers.sabueso = 0;
-        this.giveLoot(this.rollLoot(0.4), 'sabueso');
-      }
-    }
-    const res = this.state.res;
-    if (b.secadero) {
-      const every = 14 / b.secadero;
-      const wet = CUT_ORDER.find((c) => res[woodKey('humeda', c)] > 0);
-      if (wet) this.helperTimers.secadero += dt / every;
-      if (wet && this.helperTimers.secadero >= 1) {
-        this.helperTimers.secadero = 0;
-        this.state.add(woodKey('humeda', wet), -1);
-        this.state.add(woodKey('pino', wet), 1);
-        this.floatText(RACK_TEXT_X, 300, `+1 ${CUTS[wet].name.toLowerCase()} seca`, '#e6c896');
+    // Lo que se compró de más se va olvidando: el precio de mercado vuelve solo.
+    this.demandTimer += dt;
+    if (this.demandTimer >= MARKET_RECOVER) {
+      this.demandTimer = 0;
+      for (const id of Object.keys(data.demand)) {
+        if (data.demand[id] > 1) data.demand[id]--;
+        else delete data.demand[id];
       }
     }
     // La lluvia moja las ramas y la leña de la pila si no hay leñera (los troncos aguantan).
@@ -856,7 +816,7 @@ export class GameScene extends Phaser.Scene {
           const k = dry[(Math.random() * dry.length) | 0];
           this.state.add(k, -1);
           this.state.add(woodKey('humeda', WOODS[k].cut), 1);
-          this.floatText(RACK_TEXT_X, 260, `Se mojó: ${WOODS[k].name.toLowerCase()}`, '#8fb8e8');
+          this.pileText(`Se mojó: ${WOODS[k].name.toLowerCase()}`, '#8fb8e8');
           if (!this.tipLenera) {
             this.tipLenera = true;
             this.ui.toast('La lluvia te moja la pila de leña. Una leñera techada lo evita.', 'bad');
@@ -870,14 +830,12 @@ export class GameScene extends Phaser.Scene {
 
   applyUnlock(id, announce) {
     const ui = this.ui;
-    if (id === 'calor') ui.reveal('hud-calor');
-    if (id === 'bosque') ui.reveal('btn-forest');
-    if (id === 'tienda') { ui.reveal('btn-shop'); if (announce) ui.markNew('btn-shop'); }
-    if (id === 'cartas') ui.reveal('level');
-    if (id === 'noches') { ui.reveal('btn-ashes'); if (announce) ui.markNew('btn-ashes'); }
-    if (id === 'noches') this.revealAshes();
+    const reveal = MILESTONES.find((m) => m.id === id)?.reveal;
+    if (reveal) {
+      ui.reveal(reveal);
+      if (announce && reveal.startsWith('btn-')) ui.markNew(reveal);
+    }
     if (id === 'clima' && announce) this.weather.timer = 25;
-    if (id === 'construir') { ui.reveal('btn-build'); if (announce) ui.markNew('btn-build'); }
     if (announce && this.fx) {
       // Destello de hito.
       this.fire.flare(1.6);
@@ -900,7 +858,7 @@ export class GameScene extends Phaser.Scene {
   checkProgress() {
     const data = this.state.data;
     for (const m of MILESTONES) {
-      if (data.unlocked[m.id] || !m.when(data, this.state)) continue;
+      if (data.unlocked[m.id] || !milestoneDue(m, data, this.state)) continue;
       data.unlocked[m.id] = true;
       this.applyUnlock(m.id, true);
       if (m.toast) {
@@ -911,7 +869,7 @@ export class GameScene extends Phaser.Scene {
     // Ítems nuevos en la tienda o en construir.
     data.seenItems = data.seenItems || {};
     for (const it of allItems(data)) {
-      if (data.seenItems[it.id] || !it.requires(data)) continue;
+      if (it.tab === 'pila' || data.seenItems[it.id] || !it.requires(data)) continue;
       data.seenItems[it.id] = true;
       if (Object.keys(data.seenItems).length > 2) this.ui.markNew(it.tab === 'tienda' ? 'btn-shop' : 'btn-build');
     }
@@ -1175,15 +1133,16 @@ export class GameScene extends Phaser.Scene {
       .map((it) => {
         const level = data.bought[it.id] || 0;
         const max = it.max || 99;
-        const maxed = level >= max;
-        const price = this.state.price(it.cost(Math.min(level, max - 1)));
+        const maxed = !it.market && level >= max;
+        const cost = it.cost(it.market ? this.state.priceLevel(it) : Math.min(level, max - 1));
+        const price = this.state.price(cost);
         return {
           id: it.id, icon: it.icon, name: it.name, desc: it.desc, level, max, maxed, price,
           need: {
             calor: Math.max(0, Math.ceil(price.calor - data.calor)),
             tronco: Math.max(0, Math.ceil(price.tronco - this.state.troncos())),
           },
-          affordable: this.state.canPay(it.cost(Math.min(level, max - 1))),
+          affordable: this.state.canPay(cost),
           effect: it.effect(Math.min(level, max - 1)),
           effects: this.projectEffects(it, level),
           blocked: maxed ? null : it.blocked?.() || null,
@@ -1200,6 +1159,7 @@ export class GameScene extends Phaser.Scene {
       { label: 'Tipis', before: `${a.tipis}`, after: `${b.tipis}` },
       { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
       { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
+      { label: 'Consumo de leña', before: `×${a.burn}`, after: `×${b.burn}` },
     ];
     const pit = this.pitObjs[Number(it.id.split('_')[1])];
     if (pit && (pit.loadRatio || 0) > 0.02) {
@@ -1218,13 +1178,14 @@ export class GameScene extends Phaser.Scene {
     const it = allItems(data).find((i) => i.id === id);
     if (!it) return;
     const level = data.bought[id] || 0;
-    if (level >= (it.max || 99)) return;
+    if (!it.market && level >= (it.max || 99)) return;
     const why = it.blocked?.();
     if (why) return this.ui.toast(`🚧 ${why}`, 'bad', 3500);
-    const cost = it.cost(level);
+    const cost = it.cost(this.state.priceLevel(it));
     if (!this.state.canPay(cost)) return;
     this.state.pay(cost);
     data.bought[id] = level + 1;
+    if (it.market) data.demand[id] = (data.demand[id] || 0) + 1;
     it.apply?.(this);
 
     const [kind, idx] = id.split('_');
@@ -1319,7 +1280,7 @@ export class GameScene extends Phaser.Scene {
 
   bindUi() {
     this.ui.bind({
-      forest: () => this.startTrip(),
+      selectTool: (id) => this.selectTool(id),
       nextGoal: () => this.state.nextGoal({ rain: this.weather.rain }),
       settingSeen: (key) => this.seenOnce(key),
       items: (tab) => this.shopItems(tab),
@@ -1379,15 +1340,14 @@ export class GameScene extends Phaser.Scene {
 
   currentHint() {
     const s = this.state;
-    if (this.trip) return '';
     if (this.fire.isOut) {
       return s.res.fosforo > 0
-        ? 'Se apagó. Poné ramas en el centro y tocalas para prender un fósforo.'
-        : 'Sin fósforos: tocá la leña para probar con el pedernal.';
+        ? 'Se apagó. Poné ramas y tocalas para prender un fósforo.'
+        : 'Sin fósforos: poné ramas y tocalas para probar con el pedernal.';
     }
     if (this.sinceStart < 25 && s.totalCalor < 15) return 'Arrastrá leña de la pila a un lugar marcado del fuego.';
-    if (this.fire.stats.llama === 0 && this.fire.stats.brasas > 0) return 'Quedan brasas… poné ramas en el centro.';
-    if (s.woodStock() === 0 && s.unlocked.bosque) return 'No te queda leña: andá al bosque.';
+    if (this.fire.stats.llama === 0 && this.fire.stats.brasas > 0) return 'Quedan brasas… poné ramas, que prenden con poco.';
+    if (s.woodStock() === 0 && s.unlocked.tienda) return 'No te queda leña: tocá el + de la pila para comprar.';
     return '';
   }
 
@@ -1412,7 +1372,7 @@ export class GameScene extends Phaser.Scene {
       this.state.gainCalor(rate * dt);
       this.updateNight(dt);
 
-      this.updateTripAndHelpers(dt);
+      this.updateSupply(dt);
       if (this.bellowsPit && this.time.now - this.lastPump > 420) {
         if (this.fire.pitIsLit(this.bellowsPit)) this.pump(this.bellowsPit);
       }
@@ -1451,10 +1411,8 @@ export class GameScene extends Phaser.Scene {
       this.hintTimer = 0;
       this.ui.setHint(this.currentHint());
       this.ui.pitInfo(this.pitInfoList());
-      const b = this.state.bought;
-      const helpers = [];
-      if (b.ayudante) helpers.push({ id: 'ayudante', label: `🧑‍🌾 Ayudante ${b.ayudante > 1 ? `×${b.ayudante}` : ''}`, progress: this.helperTimers.ayudante });
-      if (b.secadero) helpers.push({ id: 'secadero', label: '🧱 Secadero', progress: this.helperTimers.secadero });
+      const helpers = SUPPLIERS.filter((sup) => sup.label && sup.level(data, this.state.mods))
+        .map((sup) => ({ id: sup.id, label: sup.label(sup.level(data, this.state.mods)), progress: this.supplyTimers[sup.id] || 0 }));
       const lvl = this.state.levelInfo();
       this.rateInfo = this.state.rateBreakdown(this.pitObjs, this.fire.stats.llama, true, this.pitObjs.map((p) => p.structureBonus));
       this.ui.update({
@@ -1468,11 +1426,11 @@ export class GameScene extends Phaser.Scene {
         levelNeed: lvl.need,
         rateInfo: this.rateInfo,
         night: data.unlocked.noches ? this.state.nightInfo() : null,
-        matches: this.state.res.fosforo,
+        tool: data.tool,
+        res: this.state.res,
         forecast: data.unlocked.clima ? this.weather.forecast : null,
         weatherOn: !!data.unlocked.clima,
         skyLabel: this.skyLabel,
-        trip: this.trip ? { progress: this.trip.t / this.trip.dur } : null,
         helpers,
       });
     }

@@ -16,7 +16,7 @@
     <div id="ui">
       <div id="pit-info"></div>
       <div id="hud-calor" class="hidden">
-        <div class="calor"><span class="ico">🔥</span><span id="calor-val">0</span></div>
+        <div class="calor"><i class="heat" role="img" aria-label="calor"></i><span id="calor-val">0</span></div>
         <div id="calor-rate" tabindex="0" role="button" aria-label="Ritmo de calor: ver el desglose">+0 /s</div>
         <div id="rate-pop" role="status"></div>
         <div id="level" class="hidden">
@@ -30,7 +30,6 @@
       </div>
 
       <div id="hud-right">
-        <div id="matches" title="Tocá la leña para prenderla con un fósforo"><i class="match"></i><b id="matches-val">3</b> fósforos</div>
         <button id="btn-mute" class="icon-btn" title="Sonido (M)" aria-label="Silenciar o activar sonido">🔊</button>
         <button id="btn-menu" class="icon-btn" title="Menú (Esc)" aria-label="Abrir menú">⚙️</button>
       </div>
@@ -48,11 +47,12 @@
       </div>
 
       <div id="actions">
-        <button id="btn-forest" class="act hidden" title="Ir al bosque (B)"><span class="fill"></span><span class="lbl">🌲 Ir al bosque</span><kbd>B</kbd></button>
         <button id="btn-shop" class="act hidden" title="Tienda (S)"><span class="lbl">🎒 Mercachifle</span><kbd>S</kbd></button>
         <button id="btn-build" class="act hidden" title="Construir (C)"><span class="lbl">🔨 Construir</span><kbd>C</kbd></button>
         <button id="btn-ashes" class="act hidden" title="Cenizas (A)"><span class="lbl">🪦 Cenizas</span><kbd>A</kbd></button>
       </div>
+
+      <div id="tools" role="toolbar" aria-label="Herramientas"></div>
 
       <div id="helpers"></div>
 
@@ -63,14 +63,6 @@
         </header>
         <div id="panel-meta" class="hidden"></div>
         <div id="panel-list"></div>
-      </div>
-
-      <div id="away" class="hidden">
-        <div class="away-box">
-          <div class="away-title">🌲 Estás en el bosque…</div>
-          <div class="away-sub">El fuego sigue solo. Ojalá aguante.</div>
-          <div class="bar"><div id="away-fill"></div></div>
-        </div>
       </div>
 
       <div id="modal" class="hidden">
@@ -108,8 +100,8 @@
       <div id="menu" class="hidden" role="dialog" aria-modal="true" aria-labelledby="menu-title">
         <div class="menu-box">
           <h2 id="menu-title">Ajustes</h2>
-          <p>Arrastrá leña de la pila y tirala al fuego. Tocá la leña para prenderla con un fósforo.
-            Si la cargás de más, se ahoga. Juntá calor para comprar y construir.</p>
+          <p>Arrastrá leña de la pila y tirala al fuego. Elegí una herramienta abajo y tocá la leña para prenderla.
+            Juntá calor para comprar y construir.</p>
           <div class="settings">
             <label class="set-row" for="set-volume">
               <span>Volumen</span>

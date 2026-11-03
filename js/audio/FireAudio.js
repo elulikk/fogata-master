@@ -371,13 +371,6 @@ export class FireAudio {
     this.burst({ type: 'bandpass', freq: 1500, q: 1.2, decay: 0.06, vol: 0.45 });
   }
 
-  steps() {
-    if (!this.on) return;
-    for (let i = 0; i < 4; i++) {
-      this.burst({ type: 'lowpass', freq: 700, decay: 0.08, vol: 0.18, when: i * 0.22 });
-    }
-  }
-
   // pitch sube en los combos; el brillo (armónico) también.
   coin(pitch = 1) {
     if (!this.on || !this.throttle('coin', 30)) return;
@@ -516,30 +509,6 @@ export class FireAudio {
     this.tone({ freq: 70, freqEnd: 140, attack: 0.9, decay: 0.5, vol: 0.2 });
     this.tone({ type: 'triangle', freq: 392, attack: 0.9, decay: 0.8, vol: 0.06, when: 0.9 });
     for (let i = 0; i < 6; i++) this.burst({ type: 'bandpass', freq: 2000 + Math.random() * 3500, q: 2, decay: 0.02, vol: 0.25, when: 1.0 + Math.random() * 0.8 });
-  }
-
-  // Encuentro en el bosque. kind: 'hallazgo' | 'animal' | 'viajero' | 'peligro'; otro valor = 'hallazgo'.
-  forestEvent(kind = 'hallazgo') {
-    if (!this.on) return;
-    if (kind === 'animal') {
-      // Ramas que crujen y un gruñido corto.
-      for (let i = 0; i < 3; i++) this.burst({ type: 'bandpass', freq: 1500 + Math.random() * 1500, q: 2, decay: 0.03, vol: 0.2, when: i * 0.09 });
-      this.tone({ type: 'sawtooth', freq: 220, freqEnd: 150, attack: 0.05, decay: 0.3, vol: 0.06, when: 0.3 });
-    } else if (kind === 'viajero') {
-      // Pasos y dos notas amables.
-      for (let i = 0; i < 3; i++) this.burst({ type: 'lowpass', freq: 700, decay: 0.07, vol: 0.16, when: i * 0.18 });
-      this.tone({ type: 'triangle', freq: 392, decay: 0.2, vol: 0.14, when: 0.6 });
-      this.tone({ type: 'triangle', freq: 523, decay: 0.3, vol: 0.14, when: 0.75 });
-    } else if (kind === 'peligro') {
-      // Golpe grave disonante.
-      this.tone({ type: 'sawtooth', freq: 110, freqEnd: 90, decay: 0.7, vol: 0.12 });
-      this.tone({ type: 'sawtooth', freq: 117, freqEnd: 95, decay: 0.7, vol: 0.1 });
-      this.burst({ buf: this.brown, type: 'lowpass', freq: 400, decay: 0.5, vol: 0.5 });
-    } else {
-      // Hallazgo: campanitas de tesoro.
-      [784, 988, 1175, 1568].forEach((f, i) => this.tone({ type: 'sine', freq: f, decay: 0.4, vol: 0.12, when: i * 0.07 }));
-      this.burst({ type: 'highpass', freq: 6500, decay: 0.2, vol: 0.08, when: 0.2 });
-    }
   }
 
   // Logro desbloqueado: fanfarria brillante, distinta de levelUp (campana + brillo).

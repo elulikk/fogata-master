@@ -2,6 +2,8 @@
 // Todo pasa por los handlers que ya existen en la escena (export / import / reset / pause):
 // una ranura es un guardado exportado (base64) en su propia clave de localStorage.
 
+import { HEAT } from '../utils/heat.js';
+
 const KEY = 'fogata-master-save-v1'; // partida activa y autoguardado (la escribe GameState)
 const PREV = 'fogata-master-prev';   // copia de seguridad de lo que se pisó por última vez
 const SLOTS = [1, 2, 3];
@@ -40,7 +42,7 @@ function infoOf(d) {
 function infoText(i) {
   if (!i) return '';
   const night = i.nights ? ` · ${i.nights} ${i.nights === 1 ? 'noche' : 'noches'}` : '';
-  return `Nivel ${i.level} · 🔥 ${fmtCalor(i.calor)}${night}`;
+  return `Nivel ${i.level} · ${HEAT} ${fmtCalor(i.calor)}${night}`;
 }
 
 function decode(text) {
@@ -259,12 +261,14 @@ export class MainMenu {
   screen_howto() {
     return `<h2 id="mm-title">Cómo jugar</h2>
       <ul class="mm-howto">
-        <li><b>Arrastrar:</b> llevá la leña de la pila al fuego y soltala sobre un lugar marcado: ramas al centro (azul), leña al medio (amarillo), troncos afuera (rojo).</li>
-        <li><b>Prender:</b> tocá la leña para usar un fósforo.</li>
+        <li><b>Arrastrar:</b> llevá la leña de la pila al fuego y soltala: se acomoda sola. El orden no importa, pero cada tamaño tiene sus lugares.</li>
+        <li><b>Prender:</b> elegí una herramienta en la barra de abajo y tocá la leña. Las ramas prenden con casi nada; la leña pide ramas ardiendo y los troncos, un fuego fuerte.</li>
         <li><b>Consumo:</b> a la mitad, un tronco se vuelve leña y la leña se vuelve rama, y bajan de lugar. Las ramas terminan en ceniza.</li>
+        <li><b>Leña:</b> se compra con calor, en el + de la pila o en el Mercachifle. Un leñador te la trae solo.</li>
+        <li><b>Evolucionar:</b> en Construir, la fogata pasa a hogar, horno y fragua. Cada escalón abre maderas mejores.</li>
         <li><b>Maderas:</b> pasá el mouse por la pila para ver cómo rinde cada especie.</li>
         <li><b>Noche:</b> mantené el calor/s por encima de la meta hasta el amanecer.</li>
-        <li><b>Atajos:</b> S tienda · C construir · B bosque · M sonido · Esc pausa.</li>
+        <li><b>Atajos:</b> 1 fósforo · 2 pedernal · S tienda · C construir · M sonido · Esc pausa.</li>
       </ul>
       <div class="menu-row">
         ${this.btn('retut', 'Ver la guía paso a paso', { cls: 'ghost' })}

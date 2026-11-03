@@ -3,12 +3,11 @@
 // La geometría y la capacidad salen de data/sizes.js; la posición la reparte la escena (layoutPits).
 
 import { GROUND_Y } from '../gfx/textures.js';
-import { MAX_SIZE, capacityOf, sizeOf } from '../data/sizes.js';
-import { buildSlots, nearestFree } from '../utils/slots.js';
-
-// [estilo de piedra, textura de pared] por tamaño (0-1 anillo, 2-3 trabajada, 4-5 adobe, 6-7 ceremonial).
-const TIERS = [['stone', 'wall-stone'], ['stone', 'wall-stone'], ['hewn', 'wall-stone'], ['hewn', 'wall-stone'],
-  ['adobe', 'wall-adobe'], ['adobe', 'wall-adobe'], ['ritual', 'wall-ritual'], ['ritual', 'wall-ritual']];
+import { MAX_SIZE, capacityOf, sizeOf, hearthPerks } from '../data/sizes.js';
+import { FLAMES } from '../data/flames.js';
+import { LOOKS } from '../gfx/hearths.js';
+import { CUT_ORDER } from '../data/woods.js';
+import { buildSlots, nearestFree, BASE_PER_RING } from '../utils/slots.js';
 
 export class Pit {
   constructor(scene, index, cfg = {}, x = 520) {
@@ -31,7 +30,7 @@ export class Pit {
     this.lightY = GROUND_Y - 60;
     this.burningLogs = 0;
 
-    // Fogata armada (la revisa Fire): tipi cuando hay leña en los tres anillos, si no ninguna.
+    // Fogata armada (la revisa Fire): tipi cuando hay leña de los tres tamaños, si no ninguna.
     this.structure = { type: 'ninguna', quality: 0, stable: false, height: 0 };
     this.slotList = []; // lugares de la leña (ver utils/slots.js); se rehacen en build()
     this.structTarget = 0;
@@ -73,14 +72,18 @@ export class Pit {
   get airSize() { return this.spec.air; }
   get hs() { return this.spec.hs; }
 
-  // Área de leña que lo llena: todos sus lugares ocupados con piezas enteras.
-  get capacity() { return capacityOf(this.size); }
+  // Área de leña que lo llena: todos sus lugares ocupados con piezas enteras (cartas de "Hueco" incluidas).
+  get capacity() { return this.slotList.reduce((sum, s) => sum + s.len * s.th, 0); }
 
-  // Multiplicador de calor por tamaño, diluido si el pozo está casi vacío:
-  // 1 + (mult-1)·clamp(carga / (umbral·capacidad), 0, 1); el umbral es 0,4 (Fogonero lo baja).
+  // Lugares de más: dejan subir el tope de intensidad, si no sumar leña a un pozo a tope no rendiría.
+  get roomy() { return Math.sqrt(this.slotList.length / (this.spec.tipis * CUT_ORDER.length * BASE_PER_RING)); }
+
+  // Multiplicador de calor por tamaño, diluido si el pozo está casi vacío: 1 + (m-1)·clamp(carga / (umbral·capacidad
+  // base), 0, 1); el umbral es 0,4 (Fogonero lo baja). m = mult/tipis, porque cada tipi de más ya suma su propio calor.
+  // Usa la capacidad base: una carta de "Hueco" no tiene que pedir más leña para el mismo bonus.
   get calorMult() {
-    const f = Math.min(1, Math.max(0, (this.loadRatio || 0) / (this.scene.state?.mods.fillThreshold || 0.4)));
-    return 1 + (this.spec.mult - 1) * f;
+    const f = Math.min(1, Math.max(0, (this.load || 0) / capacityOf(this.size) / (this.scene.state?.mods.fillThreshold || 0.4)));
+    return 1 + (this.spec.mult / this.spec.tipis - 1) * f;
   }
 
   contains(x, y) {
@@ -93,49 +96,61 @@ export class Pit {
     this.stones = [];
     this.layoutSlots();
 
-    // Tier visual: 0-1 anillo de piedras, 2-3 piedra trabajada, 4-5 adobe, 6-7 ceremonial.
-    const [style, wallKey] = TIERS[this.size];
-    const big = style === 'stone' ? 'stone0' : `${style}0`;
+    // Todo lo que se ve sale del escalón: su dibujo (gfx/hearths.js) y su paleta de fuego (data/flames.js).
+    const look = LOOKS[this.spec.look];
+    const flame = FLAMES[this.spec.flame];
+    this.perks = hearthPerks(this.size);
+    this.flameKey = flame.baseKey;
+    this.groundGlow.setTint(flame.ground);
+    this.stoneGlow.setTint(flame.stone);
+    this.treeGlow.setTint(flame.tree);
+    this.bedGlow.setTint(flame.bed);
+    if (flame.light) this.light.setTint(flame.light);
+    else this.light.clearTint();
+
     const add = (img) => { this.stones.push(img); return img; };
-    this.runes = [];
+    this.glows = [];
+    this.smokeAt = look.smoke || null;
+    // Lo construido, detrás del fuego.
+    if (look.back) add(scene.add.image(this.x, GROUND_Y + 8, `hearth-${this.spec.id}`).setOrigin(0.5, 1).setDepth(8));
     // Lecho oscuro con grava bajo la leña y su borde de carga.
     add(scene.add.image(this.x, GROUND_Y + 2, 'pit-bed').setDisplaySize(this.half * 2, 30).setDepth(9));
     this.ring = add(scene.add.image(this.x, GROUND_Y + 4, 'bed-ring').setDisplaySize(this.half * 2.1, 26).setDepth(11).setAlpha(0.25));
     this.ghost = add(scene.add.image(this.x, GROUND_Y - (this.wallH * 2.2 + 40) / 2, 'pit-ghost')
-      .setDisplaySize(this.half * 2, this.wallH * 2.2 + 40).setDepth(8).setAlpha(0).setTint(0xffc880));
+      .setDisplaySize(this.half * 2, this.wallH * 2.2 + 40).setDepth(8.5).setAlpha(0).setTint(0xffc880));
 
     // Piedras grandes a los costados.
-    const r = Math.min(26, 20 + this.size);
-    for (const side of [-1, 1]) {
-      const sx = this.x + side * (this.half + r - 6);
-      add(scene.add.image(sx, GROUND_Y - r + 8, big).setDisplaySize(r * 2.8, r * 2).setDepth(22).setFlipX(side > 0));
-      add(scene.add.image(sx + side * r * 1.4, GROUND_Y - 6, style === 'stone' ? 'stone2' : `${style}1`).setDepth(22));
+    if (look.sideStones) {
+      const r = Math.min(26, 20 + this.size);
+      for (const side of [-1, 1]) {
+        const sx = this.x + side * (this.half + r - 6);
+        add(scene.add.image(sx, GROUND_Y - r + 8, look.big).setDisplaySize(r * 2.8, r * 2).setDepth(22).setFlipX(side > 0));
+        add(scene.add.image(sx + side * r * 1.4, GROUND_Y - 6, look.small).setDepth(22));
+      }
     }
     const wh = this.wallH;
-    // Dibujo de las paredes (piedra / adobe / ritual según tier) y marcas de carga sobre ellas.
-    // Móvil horizontal: paredes y postes más discretos (translúcidos y bajos) para no tapar el mundo.
+    // Paredes bajas y marcas de carga sobre ellas.
+    // Móvil horizontal: paredes más discretas (translúcidas) para no tapar el mundo.
     const compact = !!window.matchMedia?.('(max-height: 520px), (max-width: 760px)').matches;
     const wallAlpha = compact ? 0.6 : 0.88;
-    const ps = compact ? 0.5 : 0.78;      // escala de los postes
     this.marks = [];
     for (const side of [-1, 1]) {
       const wx = this.x + side * (this.half - 5);
-      add(scene.add.tileSprite(wx, GROUND_Y - wh / 2 + 2, 16, wh + 4, wallKey).setDepth(21).setAlpha(wallAlpha).setTint(0xe0d8d8));
+      add(scene.add.tileSprite(wx, GROUND_Y - wh / 2 + 2, 16, wh + 4, look.wall).setDepth(21).setAlpha(wallAlpha).setTint(0xe0d8d8));
       this.marks.push(add(scene.add.image(wx, GROUND_Y - wh - 8, 'load-notch').setDepth(31).setAlpha(0.5)));
-      if (this.size >= 6) {
-        const px = this.x + side * (this.half + 38);
-        add(scene.add.image(px, GROUND_Y + 4 - 75 * ps, 'post').setScale(ps).setDepth(21).setAlpha(compact ? 0.7 : 1));
-        this.runes.push(add(scene.add.image(px, GROUND_Y + 4 - 88 * ps, 'rune-glow').setScale(ps).setBlendMode(Phaser.BlendModes.ADD)
-          .setTint(0xff9a40).setAlpha(0.2).setDepth(24)));
-      }
     }
-    // Labio de piedras adelante (tapa la base de la leña).
+    // Brillos de la construcción: laten con el fuego.
+    for (const g of look.glows || []) {
+      this.glows.push(add(scene.add.image(this.x + g.x, GROUND_Y + 8 + g.y, 'glow').setScale(g.r)
+        .setBlendMode(Phaser.BlendModes.ADD).setTint(g.tint).setAlpha(0).setDepth(8.2)));
+    }
+    // Labio de adelante (tapa la base de la leña).
     const n = Math.round((this.half * 2) / 26);
     for (let i = 0; i <= n; i++) {
       const sx = this.left - 6 + (i / n) * (this.half * 2 + 12);
-      const key = style === 'stone' ? `stone${2 + (i % 2)}` : `${style}1`;
+      const key = look.lip[i % look.lip.length];
       const img = add(scene.add.image(sx, GROUND_Y + 6 + (i % 2) * 3, key).setDepth(30));
-      if (style !== 'stone') img.setFlipX(i % 2 === 1).setScale(0.9 + 0.1 * (i % 3));
+      if (look.lip.length === 1) img.setFlipX(i % 2 === 1).setScale(0.9 + 0.1 * (i % 3));
     }
     this.drawAsh();
     this.drawRoof();
@@ -145,7 +160,7 @@ export class Pit {
   // Rehace los lugares para la posición y el tamaño actuales; la leña que ya estaba sigue en su anillo.
   layoutSlots() {
     const logs = this.slotList.filter((s) => s.log).map((s) => s.log);
-    this.slotList = buildSlots(this.x, this.half, this.spec.tipis, GROUND_Y);
+    this.slotList = buildSlots(this.x, this.half, this.spec.tipis, GROUND_Y, this.scene.state?.mods.extraSlots);
     for (const l of logs) {
       const old = l.slot;
       const slot = this.slotList.find((q) => !q.log && q.tier === old.tier && q.tipi === old.tipi && q.side === old.side)
@@ -165,12 +180,12 @@ export class Pit {
     this.flameBases = [];
     const nb = Math.max(1, Math.min(4, Math.round(this.half / 75)));
     for (let i = 0; i < nb; i++) {
-      this.flameBases.push(this.scene.add.image(this.x, GROUND_Y - 20, 'flame-base').setOrigin(0.5, 0.94).setAlpha(0).setDepth(19));
+      this.flameBases.push(this.scene.add.image(this.x, GROUND_Y - 20, this.flameKey).setOrigin(0.5, 0.94).setAlpha(0).setDepth(19));
     }
     this.flameBase = this.flameBases[0];
   }
 
-  // Marca de carga: borde del lecho y muescas pasan de naranja a rojo con loadRatio; runas laten con el fuego.
+  // Marca de carga: borde del lecho y muescas pasan de naranja a rojo con loadRatio; los brillos laten con el fuego.
   tick() {
     if (!this.ring || !this.ring.active) return;
     const q = Math.min(1.3, this.loadRatio || 0);
@@ -186,7 +201,12 @@ export class Pit {
     const p = sc.input.activePointer;
     const near = !!sc.drag && Math.abs(p.worldX - this.x) < this.half + 60;
     this.ghost.setAlpha(this.ghost.alpha + ((near ? 0.55 : 0) - this.ghost.alpha) * 0.2);
-    for (const r of this.runes) r.setAlpha(0.15 + 0.6 * Math.min(1, this.intensity || 0));
+    const fi = Math.min(1, this.intensity || 0);
+    for (const g of this.glows) g.setAlpha(0.15 + 0.7 * fi);
+    // Humo de la chimenea, tanto como fuego haya.
+    if (this.smokeAt && !sc.paused && Math.random() < 0.12 * fi) {
+      sc.fire.smoke.emitParticleAt(this.x + this.smokeAt.x + (Math.random() - 0.5) * 16, GROUND_Y + 8 + this.smokeAt.y);
+    }
   }
 
   setSize(size) {
@@ -224,12 +244,13 @@ export class Pit {
     this.drawnAsh = this.ash;
   }
 
+  // Una construcción con chimenea ya está cubierta: el techo de paja no se dibuja aunque se haya comprado.
   // Techo proporcional al pozo: dos puntales finos y una cubierta de paja sobre una viga de tablas.
   // Un pozo chico queda bajo y angosto; uno grande sube con la pared y el ancho, sin tapar el cielo.
   drawRoof() {
     for (const o of this.roofObjs) o.destroy();
     this.roofObjs = [];
-    if (!this.roof) return;
+    if (!this.roof || this.perks.covered) return;
     const add = (o) => { this.roofObjs.push(o); return o; };
     const l = this.left - 14, r = this.right + 14;
     const top = GROUND_Y - (this.wallH + 115 + this.size * 9);
