@@ -6,7 +6,6 @@ extends Node
 const ALTURA_SOLTAR := 1.25
 const FOCO_Y := 0.32
 const CADA_SOPLO := 0.42
-const VIDA_CHISPAZO := 7.0
 
 var juego := Juego.new()
 var mundo: Mundo
@@ -27,6 +26,7 @@ var _reloj_soplo := 0.0
 var _chispazos: Array[Dictionary] = []
 var _combo := 0
 var _combo_t := 0.0
+var _malla_chispa: Mesh
 var _auto := false
 
 
@@ -69,7 +69,8 @@ func _process(delta: float) -> void:
 				_reloj_soplo = 0.0
 				if _soplando.prendido():
 					juego.fuego.soplar(_soplando)
-	sonidos.ambiente(0.0 if juego.pausado > 0 else juego.fuego.intensidad, juego.clima.lluvia, juego.clima.viento)
+	# Con una ventana abierta el fuego se sigue oyendo, más bajo: es el fondo del juego.
+	sonidos.ambiente(juego.fuego.intensidad * (0.6 if juego.pausado > 0 else 1.0), juego.clima.lluvia, juego.clima.viento)
 
 
 # --- Vistas ---
@@ -89,8 +90,13 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 		"pozo_nuevo":
 			_crear_pozo(datos.pozo)
 			_ubicar_pozos()
-		"encendida": sonidos.tocar("prende", 0.7 if datos.suave else 1.0)
+		"encendida": sonidos.tocar("prende", 0.6 if datos.suave else 0.9, randf_range(0.85, 1.15), 250)
 		"chasquido": _chasquido(datos)
+		"chispero": _pozos[datos.pozo].estallido(datos.pos, 14 if datos.acierta else 7)
+		"dev_chispas":
+			for i in datos.n:
+				var p: Pozo = juego.fuego.pozos.pick_random()
+				_soltar_chispa(p.centro + Vector3(randf_range(-0.4, 0.4), randf_range(0.3, 0.9), randf_range(-0.4, 0.4)))
 		"ahogada": sonidos.tocar("sise", 0.6)
 		"rastrillada": _pozos[datos.pozo].bocanada(datos.pozo.centro + Vector3.UP * 0.1, 8 + int(datos.sacada * 16.0), 0.55)
 		"soplo": sonidos.tocar("soplo")
@@ -198,57 +204,112 @@ func _despertar(l: Leno) -> void:
 			_piezas[otra].sleeping = false
 
 
-# --- Chispazos: se juntan pasando el mouse ---
+# --- Chispas: suben del fuego y se juntan pasando el cursor (ver datos/chispas.gd) ---
 
 func _chasquido(datos: Dictionary) -> void:
 	var l: Leno = datos.leno
-	sonidos.tocar("chasquido", datos.fuerza * 0.7, randf_range(0.8, 1.3), 40)
-	if not juego.estado.d.unlocked.get("chispazos", false):
-		return
-	if randf() >= 0.03 * juego.estado.mods.orbs * l.pozo.ventajas.orbs * datos.fuerza:
-		return
+	if randf() < Chispas.SUENA_CHASQUIDO:
+		sonidos.tocar("chasquido", datos.fuerza * 0.4, randf_range(0.8, 1.25), 110)
+	if randf() < Chispas.POR_CHASQUIDO * juego.estado.mods.orbs * l.pozo.ventajas.orbs * datos.fuerza:
+		_soltar_chispa(l.pos + Vector3.UP * 0.2)
+
+
+# Una brasita brillante con un halo: se ve bien de día y de noche.
+func _crear_malla_chispa() -> Mesh:
 	var esfera := SphereMesh.new()
-	esfera.radius = 0.025
-	esfera.height = 0.05
+	esfera.radius = 0.012
+	esfera.height = 0.024
 	esfera.radial_segments = 10
-	esfera.rings = 6
+	esfera.rings = 5
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.albedo_color = Color(2.5, 1.4, 0.4)
+	m.albedo_color = Color(5.0, 2.2, 0.5)
 	esfera.material = m
+	var halo := QuadMesh.new()
+	halo.size = Vector2.ONE * 0.09
+	var tex := GradientTexture2D.new()
+	var grad := Gradient.new()
+	grad.colors = PackedColorArray([Color(1.0, 0.6, 0.2, 0.9), Color(1.0, 0.35, 0.05, 0.0)])
+	tex.gradient = grad
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	var hm := StandardMaterial3D.new()
+	hm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	hm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	hm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	hm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	hm.albedo_texture = tex
+	hm.albedo_color = Color(1.6, 1.1, 0.8)
+	halo.material = hm
+	# Las dos superficies en una sola malla.
+	var malla := ArrayMesh.new()
+	for fuente: PrimitiveMesh in [esfera, halo]:
+		malla.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, fuente.get_mesh_arrays())
+		malla.surface_set_material(malla.get_surface_count() - 1, fuente.material)
+	return malla
+
+
+func _soltar_chispa(pos: Vector3) -> void:
+	if _chispazos.size() >= Chispas.TOPE:
+		return
+	if _malla_chispa == null:
+		_malla_chispa = _crear_malla_chispa()
 	var nodo := MeshInstance3D.new()
-	nodo.mesh = esfera
+	nodo.mesh = _malla_chispa
+	nodo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mundo.add_child(nodo)
-	nodo.global_position = l.pos + Vector3.UP * 0.35
-	_chispazos.append({"nodo": nodo, "valor": maxi(1, roundi(1.0 + juego.estado.ritmo * 0.8)), "vida": VIDA_CHISPAZO, "fase": randf() * TAU})
+	nodo.global_position = pos
+	var vel := Vector3(randf_range(-0.1, 0.1), randf_range(0.3, 0.5), randf_range(-0.1, 0.1))
+	_chispazos.append({"nodo": nodo, "vida": Chispas.VIDA * randf_range(0.85, 1.15), "fase": randf() * TAU, "vel": vel})
 
 
 func _chispazos_tick(dt: float) -> void:
+	var m: Dictionary = juego.estado.mods
 	if _combo_t > 0.0:
 		_combo_t -= dt
 		if _combo_t <= 0.0:
 			_combo = 0
+	for p in juego.fuego.pozos:
+		if not p.prendido():
+			continue
+		var i := clampf(p.intensidad / (2.5 * p.spec().tipis), 0.0, 1.0)
+		if randf() < (Chispas.MINIMO + i) * m.orbs * p.ventajas.orbs / Chispas.CADA * dt:
+			var r: float = p.spec().radio * 0.45
+			_soltar_chispa(p.centro + Vector3(randf_range(-r, r), randf_range(0.3, 0.55), randf_range(-r, r)))
 	var raton := get_viewport().get_mouse_position()
-	var alcance: float = 55.0 * juego.estado.mods.magnet
-	for i in range(_chispazos.size() - 1, -1, -1):
-		var c := _chispazos[i]
+	var alcance: float = Chispas.ALCANCE_PX * m.magnet
+	var red: float = Chispas.ATRAE_PX * m.orb_pull
+	for k in range(_chispazos.size() - 1, -1, -1):
+		var c := _chispazos[k]
 		c.vida -= dt
-		c.nodo.position += Vector3(sin(c.fase + c.vida * 2.0) * 0.06, 0.12 * minf(1.0, c.vida), 0.0) * dt
-		if camara.unproject_position(c.nodo.global_position).distance_to(raton) <= alcance:
+		var nodo: MeshInstance3D = c.nodo
+		# Sube despacio, se mece y se frena como una brasa que flota.
+		c.vel = c.vel.lerp(Vector3(0.0, 0.06, 0.0), minf(1.0, dt * 0.6))
+		nodo.position += (c.vel + Vector3(sin(c.fase + c.vida * 2.2) * 0.07, 0.0, cos(c.fase + c.vida * 1.7) * 0.05)) * dt
+		nodo.scale = Vector3.ONE * (0.85 + 0.2 * sin(c.vida * 9.0 + c.fase)) * clampf(c.vida, 0.0, 1.0)
+		var dist := INF
+		if not camara.is_position_behind(nodo.global_position):
+			dist = camara.unproject_position(nodo.global_position).distance_to(raton)
+		if red > 0.0 and dist < red:
+			var hacia := camara.project_position(raton, camara.global_position.distance_to(nodo.global_position))
+			nodo.global_position = nodo.global_position.move_toward(hacia, dt * Chispas.ATRAE_VELOCIDAD * (1.0 + 2.0 * (1.0 - dist / red)))
+		if dist <= alcance:
 			_juntar(c)
-			_chispazos.remove_at(i)
+			_chispazos.remove_at(k)
 		elif c.vida <= 0.0:
-			c.nodo.queue_free()
-			_chispazos.remove_at(i)
+			nodo.queue_free()
+			_chispazos.remove_at(k)
 
 
 func _juntar(c: Dictionary) -> void:
+	var e := juego.estado
 	_combo += 1
-	_combo_t = 2.2
-	var valor := maxi(1, roundi(c.valor * minf(juego.estado.mods.combo_cap, 1.0 + _combo * 0.03)))
-	juego.estado.ganar_calor(valor)
-	juego.estado.d.meta.stats.orbs += 1
-	sonidos.tocar("moneda", 0.8, minf(2.2, 1.0 + _combo * 0.05), 15)
+	_combo_t = Chispas.COMBO_DURA
+	var valor := maxi(1, roundi((Chispas.VALOR_BASE + e.ritmo * Chispas.VALOR_RITMO) * e.mods.orb_value * minf(e.mods.combo_cap, 1.0 + _combo * Chispas.COMBO_SUBE)))
+	e.ganar_calor(valor)
+	e.d.meta.stats.orbs += 1
+	sonidos.tocar("moneda", 0.7, minf(1.6, 1.0 + _combo * 0.035), 25)
 	ui.flotar(camara.unproject_position(c.nodo.global_position), "+%d" % valor, Tema.CALOR)
 	c.nodo.queue_free()
 
@@ -305,6 +366,9 @@ func _acercar(factor: float) -> void:
 
 
 func _tecla(k: int) -> void:
+	if k == KEY_F12 and Dev.ACTIVO:
+		ui.alternar_dev()
+		return
 	if k == KEY_ESCAPE:
 		if ui.hay_ventana():
 			ui.cerrar()
@@ -419,7 +483,32 @@ func _prueba_automatica(prefijo: String) -> void:
 	var e := juego.estado
 	var d: Dictionary = e.d
 	var p: Pozo = juego.fuego.pozos[0]
-	await _esperar(0.5)
+	await _esperar(1.0)
+	# Arranque: ramas sin prender y solo el pedernal. Se golpea hasta que prenda.
+	print("INICIO prendido=%s herramientas=%s tuto=%d" % [juego.hay_fuego(), Herramientas.TODAS.filter(func(h: Dictionary) -> bool: return Herramientas.disponible(d, h)).map(func(h: Dictionary) -> String: return h.id), d.tuto])
+	await _capturar(prefijo + "-0-inicio.png")
+	ui.elegir_herramienta("pedernal")
+	var golpes := 0
+	while not juego.hay_fuego() and golpes < 40:
+		juego.usar_herramienta("pedernal", p.lenos[0].pos, p)
+		golpes += 1
+		await _esperar(0.15)
+	print("PEDERNAL golpes=%d prendido=%s" % [golpes, juego.hay_fuego()])
+	await _esperar(2.0)
+	juego.evento.emit("dev_chispas", {"n": 12})
+	await _esperar(1.0)
+	await _capturar(prefijo + "-0b-chispas.png")
+	var antes_orbs: int = d.meta.stats.orbs
+	# El cursor queda quieto: se le acerca cada chispa, como si pasara por encima.
+	var raton := get_viewport().get_mouse_position()
+	for c in _chispazos.duplicate():
+		c.nodo.global_position = camara.project_position(raton, 2.0)
+		await _esperar(0.05)
+	print("CHISPAS juntadas=%d tuto=%d" % [d.meta.stats.orbs - antes_orbs, d.tuto])
+	ui.abrir("dev")
+	await _esperar(0.4)
+	await _capturar(prefijo + "-0c-dev.png")
+	ui.cerrar()
 	# Fogatita: solo ramas. La leña se tiene que rechazar.
 	print("RECHAZO leña en fogatita: ", juego.no_entra("pino_lena", p) if d.res.get("pino_lena", 0) > 0 else "(sin stock) cupo=%d" % p.cupo("lena", e.mods))
 	for i in 3:

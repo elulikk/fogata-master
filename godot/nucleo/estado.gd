@@ -3,7 +3,8 @@ extends RefCounted
 # Estado de la partida: recursos, calor, desbloqueos, compras y árbol. Se guarda solo.
 
 const ARCHIVO := "user://partida.json"
-const INICIO := {"pino_rama": 8, "fosforo": 3}
+# Se arranca con ramas y un pedernal: el primer fuego lo prende el jugador (ver datos/tutorial.gd).
+const INICIO := {"pino_rama": 6}
 const CALOR_POR_INTENSIDAD := 2.0
 const CALOR_BASE := 0.6
 const TOPE_INCENDIO := 4
@@ -21,7 +22,7 @@ func _init() -> void:
 
 func _nueva() -> Dictionary:
 	return {
-		"res": INICIO.duplicate(), "herramienta": "fosforo", "calor": 0.0, "totalCalor": 0.0, "level": 1, "puntos_extra": 0,
+		"res": INICIO.duplicate(), "herramienta": "pedernal", "calor": 0.0, "tuto": 0, "soltadas": 0, "totalCalor": 0.0, "level": 1, "puntos_extra": 0,
 		"unlocked": {}, "bought": {}, "demand": {}, "arbol": {}, "vistos": {}, "pits": [{"size": 0, "roof": false}], "playTime": 0.0,
 		"ajustes": {"volumen": 0.8, "mudo": false}, "meta": Cenizas.nuevo(), "night": Noches.nueva(),
 	}
@@ -36,6 +37,8 @@ func cargar() -> bool:
 		return false
 	d = _nueva()
 	d.merge(leido, true)
+	if not leido.has("tuto"):
+		d.tuto = 99 # partida de antes del tutorial
 	recalcular()
 	return true
 

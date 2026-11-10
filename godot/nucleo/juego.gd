@@ -49,14 +49,20 @@ func partida_nueva(conservar_meta := false) -> void:
 	estado.guardar()
 
 
-# Una rama prendida de regalo para arrancar. La leña en el fuego no se guarda.
+# Partida nueva: unas ramas sin prender en el pozo, para que el jugador prenda su primer fuego.
+# Al volver a una partida, una rama prendida de regalo (la leña en el fuego no se guarda).
 func _arranque(nueva: bool) -> void:
 	var p: Pozo = fuego.pozos[0]
-	for i in 2 if nueva else 1:
+	for i in 3 if nueva else 1:
 		var l := Leno.new("pino_rama", p, estado.mods)
 		p.lenos.append(l)
 		evento.emit("leno_nuevo", {"leno": l, "suave": true})
-		fuego.encender(l, true)
+		if not nueva:
+			fuego.encender(l, true)
+
+
+func hay_fuego() -> bool:
+	return fuego.pozos.any(func(p: Pozo) -> bool: return p.prendido())
 
 
 func tick(dt: float) -> void:
@@ -111,6 +117,7 @@ func soltar(clave: String, p: Pozo, lugar: Vector3) -> bool:
 	var l := Leno.new(clave, p, estado.mods)
 	l.pos = lugar
 	p.lenos.append(l)
+	estado.d.soltadas += 1
 	evento.emit("leno_nuevo", {"leno": l, "lugar": lugar})
 	return true
 
@@ -132,6 +139,10 @@ func usar_herramienta(id: String, pos: Vector3, p: Pozo) -> void:
 		if l.estado == "cruda" and l.pos.distance_to(pos) < h.alcance:
 			cerca.append(l)
 	if cerca.is_empty():
+		# El pedernal se golpea igual, aunque no haya nada cerca que prender.
+		if not h.has("recurso"):
+			evento.emit("sonido", {"nombre": h.sonido})
+			evento.emit("chispero", {"pos": pos, "acierta": false, "pozo": p})
 		return
 	if h.has("recurso") and int(estado.d.res.get(h.recurso, 0)) <= 0:
 		evento.emit("rechazo", {"texto": "No te quedan: %s" % h.nombre.to_lower()})
@@ -143,6 +154,7 @@ func usar_herramienta(id: String, pos: Vector3, p: Pozo) -> void:
 		estado.sumar(h.recurso, -1)
 	var acierta: bool = randf() < h.acierto * (1.0 - p.lluvia * h.lluvia)
 	evento.emit("sonido", {"nombre": h.sonido})
+	evento.emit("chispero", {"pos": pos, "acierta": acierta, "pozo": p})
 	if acierta:
 		fuego.golpe(pos, h.calor, h.dura, h.alcance)
 		evento.emit("golpe", {"pos": pos})
@@ -286,6 +298,9 @@ func _revisar() -> void:
 			d.night.t = Noches.DIA - Noches.PRIMER_DIA_RESTA
 		evento.emit("aviso", {"texto": m.aviso, "tipo": "hito"})
 		evento.emit("sonido", {"nombre": "hito"})
+	for h: Dictionary in Herramientas.TODAS:
+		if h.has("recurso") and h.has("abre") and int(d.res.get(h.recurso, 0)) > 0:
+			d.unlocked[h.abre] = true
 	if not d.unlocked.get("rastrillo", false) and fuego.pozos.any(func(p: Pozo) -> bool: return p.ceniza >= RASTRILLO_AVISA_EN):
 		d.unlocked["rastrillo"] = true
 		evento.emit("aviso", {"texto": "🧹 La ceniza se junta y ahoga el fuego: el rastrillo (R) la saca y aviva las brasas.", "tipo": "hito"})
@@ -345,3 +360,65 @@ func _de_fuego(nombre: String, datos: Dictionary) -> void:
 		estado.ganar_calor(regalo)
 		evento.emit("aviso", {"texto": "🔥 ¡Fogata en su punto! +%d" % regalo, "tipo": "hito"})
 	evento.emit(nombre, datos)
+
+
+# --- Ayudas del menú de desarrollo (datos/dev.gd). No las usa el juego. ---
+
+func dev_desbloquear_todo() -> void:
+	var d := estado.d
+	for m: Dictionary in Progreso.HITOS:
+		d.unlocked[m.id] = true
+	for h: Dictionary in Herramientas.TODAS:
+		if h.has("abre"):
+			d.unlocked[h.abre] = true
+	d.tuto = 99
+	if d.night.phase == "off":
+		d.night.phase = "day"
+	estado.recalcular()
+
+
+func dev_comprar_todo() -> void:
+	for it: Dictionary in Tienda.todos(estado.d):
+		if it.tab == "pyroshop" and not it.get("mercado", false):
+			while int(estado.d.bought.get(it.id, 0)) < it.get("max", 1):
+				estado.d.bought[it.id] = int(estado.d.bought.get(it.id, 0)) + 1
+	estado.recalcular()
+
+
+func dev_prender_todo() -> void:
+	for p in fuego.pozos:
+		for l in p.lenos:
+			if l.estado == "cruda":
+				fuego.encender(l)
+
+
+func dev_llenar() -> void:
+	for p in fuego.pozos:
+		for corte: String in Maderas.ORDEN_CORTES:
+			var clave := Maderas.clave("pino", corte)
+			while p.cuantos(corte) < p.cupo(corte, estado.mods):
+				estado.sumar(clave, 1)
+				var r: float = p.spec().radio * 0.6
+				if not soltar(clave, p, p.centro + Vector3(randf_range(-r, r), 0.0, randf_range(-r, r))):
+					break
+
+
+func dev_clima(tipo: String) -> void:
+	estado.d.unlocked["clima"] = true
+	if tipo.is_empty():
+		clima.fase = "activo"
+		clima.reloj = 0.01
+		return
+	clima.suceso = {"tipo": tipo, "lluvia": 1.0 if tipo == "tormenta" else 0.7, "viento": 0.7 if tipo == "tormenta" else 0.0, "dura": 40.0}
+	clima.fase = "aviso"
+	clima.reloj = 0.01
+
+
+func dev_noche(cual: String) -> void:
+	var nt: Dictionary = estado.d.night
+	estado.d.unlocked["noches"] = true
+	if cual == "noche":
+		nt.phase = "day"
+		nt.t = Noches.DIA - 0.1
+	elif nt.phase == "night":
+		nt.t = Noches.NOCHE - 0.1

@@ -25,6 +25,7 @@ func _ready() -> void:
 	_crear_ambiente()
 	_crear_suelo()
 	_crear_bosque()
+	_crear_rocas()
 	_crear_lluvia()
 
 
@@ -138,6 +139,35 @@ func _crear_bosque() -> void:
 			c.scale = Vector3.ONE * (1.65 - nivel * 0.34)
 			arbol.add_child(c)
 		add_child(arbol)
+
+
+# Piedras del pack sueltas por el claro, lejos del lugar de las fogatas.
+func _crear_rocas() -> void:
+	var modelos := Modelos.piedras()
+	if modelos.is_empty():
+		return
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.27, 0.26, 0.25)
+	m.albedo_texture = ruido
+	m.normal_enabled = true
+	m.normal_texture = ruido_normal
+	m.roughness = 0.95
+	m.uv1_triplanar = true
+	m.uv1_scale = Vector3.ONE * 0.5
+	for i in 18:
+		var datos: Dictionary = modelos.pick_random()
+		var caja: AABB = datos.aabb
+		var angulo := randf() * TAU
+		var dist := randf_range(4.5, 11.0)
+		var tam := randf_range(0.25, 0.9) * (dist / 6.0)
+		var k := tam / maxf(0.01, maxf(caja.size.x, caja.size.z))
+		var base := Basis(Vector3.UP, randf() * TAU) * Basis.from_scale(Vector3.ONE * k)
+		var apoyo := Vector3(caja.get_center().x, caja.position.y + caja.size.y * 0.15, caja.get_center().z)
+		var roca := MeshInstance3D.new()
+		roca.mesh = datos.mesh
+		roca.material_override = m
+		roca.transform = Transform3D(base, Vector3(cos(angulo), 0.0, sin(angulo)) * dist - base * apoyo)
+		add_child(roca)
 
 
 func _crear_lluvia() -> void:

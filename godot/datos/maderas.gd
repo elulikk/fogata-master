@@ -13,6 +13,7 @@ const CORTES := {
 		"nombre": "Leña", "plural": "leñas", "manojo": 2, "precio": 7.0, "largo_px": 116, "grosor_px": 22, "largo": 0.74, "radio": 0.052,
 		"prende": 0.77, "tibia": 1.25, "combustible": 30.0, "calor": 1.9, "chasquido": 3.5, "chispas": 1.0, "humo": 0.3,
 		"pista": "Prende con ramas ardiendo",
+		"modelos": ["lena_umoibcnhw", "lena_vddjehsaa"], # ver mundo/modelos.gd
 	},
 	"tronco": {
 		"nombre": "Tronco", "plural": "troncos", "manojo": 1, "precio": 20.0, "largo_px": 155, "grosor_px": 34, "largo": 0.92, "radio": 0.09,
@@ -70,7 +71,7 @@ static func todas() -> Dictionary:
 			_tabla[clave(sp, corte)] = {
 				"nombre": "%s de %s" % [c.nombre, s.nombre.to_lower()], "corto": c.nombre, "desc": s.desc, "pista": c.pista,
 				"especie": sp, "corte": corte, "nivel": i, "largo_px": c.largo_px, "grosor_px": c.grosor_px,
-				"largo": c.largo, "radio": c.radio, "color": s.color, "cono": false,
+				"largo": c.largo, "radio": c.radio, "color": s.color, "cono": false, "modelos": c.get("modelos", []),
 				"humedad": s.get("humedad", 0.0), "secado": s.get("secado", 6.0),
 				"prende": c.prende * s.prende, "tibia": c.tibia * s.tibia, "combustible": c.combustible * s.combustible,
 				"calor": c.calor * s.calor, "humo": c.humo * s.humo, "chasquido": c.chasquido * s.chasquido, "chispas": c.chispas * s.chispas,
@@ -80,7 +81,7 @@ static func todas() -> Dictionary:
 	_tabla["pina"] = {
 		"nombre": "Piña", "corto": "Piña", "desc": "Llena de resina: prende al toque y larga una llamarada.", "pista": "",
 		"especie": "pina", "corte": "rama", "nivel": 0, "largo_px": 34, "grosor_px": 34, "largo": 0.14, "radio": 0.06,
-		"color": Color("7a5233"), "cono": true, "humedad": 0.0, "secado": 6.0,
+		"color": Color("7a5233"), "cono": true, "modelos": [], "humedad": 0.0, "secado": 6.0,
 		"prende": 0.08, "tibia": 0.2, "combustible": 6.0, "calor": 3.0, "humo": 0.5, "chasquido": 9.0, "chispas": 3.0, "sigue": "",
 	}
 	return _tabla

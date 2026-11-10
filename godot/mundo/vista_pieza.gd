@@ -5,6 +5,10 @@ extends RigidBody3D
 const QUIETA_LINEAL := 0.07
 const QUIETA_ANGULAR := 0.3
 const SEGUNDOS_PARA_CALMARSE := 0.8
+# Color medio de las texturas de leña de Quixel: el tinte de cada especie se mide contra este.
+const COLOR_MODELO := Color("725843")
+# Un modelo se estira a lo largo como mucho esto respecto de su grosor, para que la textura no se deforme.
+const ESTIRA_MAXIMO := 1.8
 
 static var _materiales_llama := {}
 
@@ -12,6 +16,9 @@ var leno: Leno
 var _mesh: MeshInstance3D
 var _forma: CylinderShape3D
 var _material: ShaderMaterial
+var _mat_codigo: ShaderMaterial
+var _mat_modelo: ShaderMaterial
+var _modelo: MeshInstance3D
 var _llamas: GPUParticles3D
 var _ruido: Texture2D
 var _ruido_normal: Texture2D
@@ -38,11 +45,11 @@ func configurar(l: Leno, ruido: Texture2D, ruido_normal: Texture2D) -> void:
 	add_child(colision)
 	_mesh = MeshInstance3D.new()
 	add_child(_mesh)
-	_material = ShaderMaterial.new()
-	_material.shader = preload("res://shaders/madera.gdshader")
-	_material.set_shader_parameter("semilla", randf())
-	_material.set_shader_parameter("ruido", ruido)
-	_material.set_shader_parameter("ruido_normal", ruido_normal)
+	_mat_codigo = ShaderMaterial.new()
+	_mat_codigo.shader = preload("res://shaders/madera.gdshader")
+	_mat_codigo.set_shader_parameter("semilla", randf())
+	_mat_codigo.set_shader_parameter("ruido", ruido)
+	_mat_codigo.set_shader_parameter("ruido_normal", ruido_normal)
 	armar()
 
 
@@ -51,9 +58,24 @@ func armar() -> void:
 	var w := leno.madera
 	var radio: float = w.radio * randf_range(0.92, 1.1)
 	var largo: float = w.largo * randf_range(0.9, 1.08)
+	if _modelo:
+		_modelo.queue_free()
+		_modelo = null
+	var modelos: Array = w.get("modelos", [])
+	var datos := Modelos.lena(modelos.pick_random()) if not modelos.is_empty() else {}
+	if not datos.is_empty():
+		largo = _armar_modelo(datos, radio, largo)
 	mass = PI * radio * radio * largo * 600.0
 	_forma.radius = radio
 	_forma.height = largo
+	if _llamas:
+		_llamas.queue_free()
+		_llamas = null
+	sleeping = false
+	if _modelo:
+		_mesh.mesh = null
+		return
+	_material = _mat_codigo
 	var cilindro := CylinderMesh.new()
 	cilindro.top_radius = radio * (0.25 if w.cono else randf_range(0.82, 1.0))
 	cilindro.bottom_radius = radio
@@ -64,10 +86,45 @@ func armar() -> void:
 	_mesh.mesh = cilindro
 	_material.set_shader_parameter("color_base", w.color)
 	_material.set_shader_parameter("radio", radio)
-	if _llamas:
-		_llamas.queue_free()
-		_llamas = null
-	sleeping = false
+
+
+# Pone el modelo con su eje largo vertical (el eje del cilindro de colisión) y lo escala al grosor del corte.
+# Devuelve el largo con que quedó.
+func _armar_modelo(datos: Dictionary, radio: float, largo: float) -> float:
+	var caja: AABB = datos.aabb
+	var s := caja.size
+	var eje := 0 if s.x >= s.y and s.x >= s.z else (1 if s.y >= s.z else 2)
+	var giro := Basis()
+	if eje == 0:
+		giro = Basis(Vector3.BACK, PI * 0.5)
+	elif eje == 2:
+		giro = Basis(Vector3.RIGHT, PI * 0.5)
+	var grueso := 0.0
+	for i in 3:
+		if i != eje:
+			grueso = maxf(grueso, s[i])
+	var k_grosor := 2.0 * radio * 1.1 / maxf(0.001, grueso)
+	var k_largo := clampf(largo / maxf(0.001, s[eje]), k_grosor * 0.8, k_grosor * ESTIRA_MAXIMO)
+	var esc := Vector3.ONE * k_grosor
+	esc[eje] = k_largo
+	var base := (giro * Basis.from_scale(esc)).rotated(Vector3.UP, randf() * TAU)
+	if _mat_modelo == null:
+		_mat_modelo = ShaderMaterial.new()
+		_mat_modelo.shader = preload("res://shaders/madera_modelo.gdshader")
+		_mat_modelo.set_shader_parameter("semilla", randf())
+		_mat_modelo.set_shader_parameter("ruido", _ruido)
+	for par: Array in [["tex_color", "BaseColor"], ["tex_normal", "Normal"], ["tex_rugosidad", "Roughness"], ["tex_ao", "AO"]]:
+		_mat_modelo.set_shader_parameter(par[0], datos[par[1]])
+	var c: Color = leno.madera.color
+	_mat_modelo.set_shader_parameter("tinte", Vector3(
+		clampf(c.r / COLOR_MODELO.r, 0.35, 1.6), clampf(c.g / COLOR_MODELO.g, 0.35, 1.6), clampf(c.b / COLOR_MODELO.b, 0.35, 1.6)))
+	_material = _mat_modelo
+	_modelo = MeshInstance3D.new()
+	_modelo.mesh = datos.mesh
+	_modelo.material_override = _mat_modelo
+	_modelo.transform = Transform3D(base, -(base * caja.get_center()))
+	_mesh.add_child(_modelo)
+	return s[eje] * k_largo
 
 
 func _physics_process(delta: float) -> void:

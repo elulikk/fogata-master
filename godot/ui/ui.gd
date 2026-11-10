@@ -53,8 +53,25 @@ var _velo: ColorRect
 var _ventana: Ventana
 var _nombre_ventana := ""
 var _reloj := 0.0
+var _aro: Aro
 # Aspecto del botón elegido en la mano.
 var _sel: StyleBoxFlat = Tema.caja(Color(0.36, 0.21, 0.08), Tema.ORO, 2, 8, 6.0, 3.0, 6)
+
+
+# El radio de la red mágica de chispas, alrededor del cursor.
+class Aro extends Control:
+	var radio := 0.0
+
+	func _process(_d: float) -> void:
+		position = get_global_mouse_position()
+		queue_redraw()
+
+	func _draw() -> void:
+		if radio <= 0.0:
+			return
+		var latido := 0.5 + 0.5 * sin(Time.get_ticks_msec() * 0.004)
+		draw_arc(Vector2.ZERO, radio, 0.0, TAU, 64, Color(1.0, 0.75, 0.35, 0.22 + 0.1 * latido), 2.0, true)
+		draw_arc(Vector2.ZERO, radio * 0.97, 0.0, TAU, 64, Color(1.0, 0.6, 0.2, 0.08), 6.0, true)
 
 
 func _init(j: Juego, s: Sonidos) -> void:
@@ -73,6 +90,9 @@ func _ready() -> void:
 	_crear_pila()
 	_crear_abajo()
 	_crear_acciones()
+	_aro = Aro.new()
+	_aro.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_raiz.add_child(_aro)
 	_velo = ColorRect.new()
 	_velo.color = Color(0.02, 0.01, 0.0, 0.62)
 	_velo.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -174,12 +194,22 @@ func _crear_hud() -> void:
 	der.add_theme_constant_override("separation", 6)
 	der.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_raiz.add_child(der)
+	var botones := HBoxContainer.new()
+	botones.add_theme_constant_override("separation", 6)
+	botones.size_flags_horizontal = Control.SIZE_SHRINK_END
+	der.add_child(botones)
+	if Dev.ACTIVO:
+		var dev := Tema.boton("🛠", alternar_dev)
+		dev.custom_minimum_size = Vector2(46, 40)
+		dev.add_theme_font_size_override("font_size", 18)
+		dev.add_theme_color_override("font_color", Tema.FRIO)
+		dev.tooltip_text = "Menú de desarrollo (F12). No va en el juego final."
+		botones.add_child(dev)
 	var menu := Tema.boton("⚙", func() -> void: abrir("menu"))
 	menu.custom_minimum_size = Vector2(46, 40)
 	menu.add_theme_font_size_override("font_size", 20)
 	menu.tooltip_text = "Menú (Esc)"
-	menu.size_flags_horizontal = Control.SIZE_SHRINK_END
-	der.add_child(menu)
+	botones.add_child(menu)
 	_ayudantes = _pastilla_en(der, 12, Tema.TENUE)
 	_ayudantes.get_parent().size_flags_horizontal = Control.SIZE_SHRINK_END
 	_ancla(der, Control.PRESET_TOP_RIGHT, Control.GROW_DIRECTION_BEGIN)
@@ -414,6 +444,7 @@ func abrir(nombre: String) -> void:
 
 # Deja `v` como la única ventana abierta: veló, pausa y fundido.
 func _poner(v: Ventana, nombre: String) -> void:
+	var ya_pausado := _ventana != null # cambiar de ventana no suma otra pausa
 	if _ventana != null:
 		_ventana.queue_free()
 	_ventana = v
@@ -423,7 +454,8 @@ func _poner(v: Ventana, nombre: String) -> void:
 	_velo.modulate.a = 0.0
 	_velo.create_tween().tween_property(_velo, "modulate:a", 1.0, 0.15)
 	_raiz.add_child(v)
-	juego.pausar(true)
+	if not ya_pausado:
+		juego.pausar(true)
 
 
 func cerrar() -> void:
@@ -434,6 +466,13 @@ func cerrar() -> void:
 	_nombre_ventana = ""
 	_velo.visible = false
 	juego.pausar(false)
+
+
+func alternar_dev() -> void:
+	if _nombre_ventana == "dev":
+		cerrar()
+	else:
+		abrir("dev")
 
 
 func alternar(nombre: String) -> void:
@@ -454,6 +493,7 @@ func _crear_ventana(nombre: String) -> Ventana:
 		"cenizas": return _ventana_cenizas()
 		"logros": return _ventana_logros()
 		"inicio": return _ventana_inicio()
+		"dev": return _ventana_dev()
 	return _ventana_menu()
 
 
@@ -612,6 +652,34 @@ func _ventana_inicio() -> Ventana:
 	return v
 
 
+# Botones para probar el juego sin jugarlo (datos/dev.gd). Queda abierta para tocar varios seguidos.
+func _ventana_dev() -> Ventana:
+	var v := Ventana.new("🛠 Dev", Vector2(640, 0))
+	var nota := Tema.etiqueta("Solo para desarrollo: no va a estar en el juego final.", 12, Tema.APAGADO)
+	v.cuerpo.add_child(nota)
+	var grilla: GridContainer
+	for a: Dictionary in Dev.acciones():
+		if a.has("seccion"):
+			_seccion(v, a.seccion)
+			grilla = GridContainer.new()
+			grilla.columns = 3
+			grilla.add_theme_constant_override("h_separation", 6)
+			grilla.add_theme_constant_override("v_separation", 6)
+			v.cuerpo.add_child(grilla)
+			continue
+		var b := Tema.boton("%s  %s" % [a.icono, a.nombre], func() -> void: pass)
+		b.custom_minimum_size = Vector2(200, 36)
+		b.add_theme_font_size_override("font_size", 13)
+		b.pressed.connect(func() -> void:
+			a.accion.call(juego)
+			juego.estado.recalcular()
+			juego.estado.guardar()
+			sonar.emit("compra")
+			flotar(b.get_global_rect().get_center(), "✔", Tema.BIEN))
+		grilla.add_child(b)
+	return v
+
+
 func mostrar_amanecer(info: Dictionary) -> void:
 	var v := Ventana.new("🌅 Amaneció" if info.exito else "🥶 El frío ganó esta noche", Vector2(440, 0))
 	if info.exito:
@@ -727,11 +795,12 @@ func _refrescar_hud() -> void:
 		b.text = str(n)
 		b.visible = not w.cono or n > 0
 		b.disabled = n == 0 or not Tienda.corte_abierto(d, w.corte)
+	_aro.radio = Chispas.ATRAE_PX * e.mods.orb_pull if not hay_ventana() else 0.0
 	var fosforos := int(d.res.get("fosforo", 0))
 	(_nombres_h.fosforo as Label).text = "Fósforo ×%d" % fosforos
 	(_nombres_h.fosforo as Label).add_theme_color_override("font_color", Tema.TEXTO if fosforos > 0 else Tema.MAL)
-	_herramientas.fuelle.visible = d.bought.get("fuelle", 0) > 0
-	_herramientas.rastrillo.visible = Herramientas.disponible(d, Herramientas.de("rastrillo"))
+	for id: String in _herramientas:
+		_herramientas[id].visible = Herramientas.disponible(d, Herramientas.de(id))
 
 	_acciones.pyroshop.visible = abierto.get("tienda", false)
 	_acciones.construir.visible = abierto.get("construir", false)
@@ -752,11 +821,14 @@ func _pista_actual() -> String:
 	var e := juego.estado
 	var d: Dictionary = e.d
 	var fuego := juego.fuego
+	var paso := _paso_tutorial()
+	if not paso.is_empty():
+		return paso
 	if fuego.apagado():
 		var hay_cruda := fuego.pozos.any(func(p: Pozo) -> bool: return not p.lenos.is_empty())
 		if not hay_cruda:
 			return "Se apagó. Elegí ramas en la pila y soltalas en el pozo."
-		return "Elegí el fósforo o el pedernal abajo y tocá la leña para prenderla."
+		return "Elegí el pedernal (P) o un fósforo abajo y tocá la leña para prenderla."
 	if d.playTime < 25.0 and d.totalCalor < 15.0:
 		return "Elegí leña en la pila y hacé clic en el pozo para soltarla."
 	if fuego.llamas == 0 and fuego.brasas > 0:
@@ -768,3 +840,24 @@ func _pista_actual() -> String:
 	if d.playTime < 240.0 and d.totalCalor >= 15.0:
 		return "Cámara: arrastrá el suelo o clic derecho para girar · rueda para el zoom."
 	return ""
+
+
+# El paso del tutorial que toca ahora (datos/tutorial.gd), o "" si ya terminó.
+# Si el fuego se apaga a mitad de camino, las pistas comunes ayudan a prenderlo de nuevo.
+func _paso_tutorial() -> String:
+	var d: Dictionary = juego.estado.d
+	var pasos := Tutorial.pasos()
+	var i := int(d.tuto)
+	if i >= pasos.size():
+		return ""
+	while i < pasos.size() and pasos[i].hecho.call(juego, mano_id):
+		i += 1
+	if i != int(d.tuto):
+		d.tuto = i
+		sonar.emit("hito")
+		if i >= pasos.size():
+			avisar("🔥 ¡Tu primer fuego! Mantenelo vivo: el calor que da es tu moneda.", "hito")
+			return ""
+	if i >= 2 and not juego.hay_fuego():
+		return ""
+	return pasos[i].texto

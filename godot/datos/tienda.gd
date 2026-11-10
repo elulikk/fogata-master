@@ -64,6 +64,13 @@ static func _fijos_lista() -> Array:
 			"accion": func(j) -> void: j.estado.sumar("fosforo", 4),
 		},
 		{
+			"id": "red_chispas", "tab": "pyroshop", "icono": "🕸️", "nombre": "Red mágica de chispas", "max": 4, "meta": 1,
+			"desc": "Atrapa chispas desde lejos y las arrastra hacia el cursor. Cada nivel, más grande y cada chispa vale 30% más.",
+			"efectos": {"magnet": 0.5, "orb_pull": 1.0, "orb_value": 0.3},
+			"requiere": func(d: Dictionary) -> bool: return abierto.call(d, "tienda") and d.totalCalor >= 40,
+			"costo": func(n: float) -> int: return _crece(60.0, 2.6, n),
+		},
+		{
 			"id": "pinas", "tab": "pyroshop", "mercado": true, "icono": "🌰", "nombre": "Bolsa de piñas", "desc": "+3 piñas: prenden al toque y largan una llamarada.",
 			"requiere": func(d: Dictionary) -> bool: return abierto.call(d, "tienda") and d.totalCalor >= 1100 and d.res.get("pina", 0) < 8,
 			"costo": func(n: float) -> int: return _suave(50.0, 1.1, n),

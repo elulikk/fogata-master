@@ -111,6 +111,10 @@ func _montones_de_ceniza() -> void:
 
 func _crear_piedras(s: Dictionary) -> void:
 	var material := _material(Fogones.PIEDRA)
+	var modelos := Modelos.piedras()
+	if not modelos.is_empty():
+		_crear_piedras_modelo(s, modelos, material)
+		return
 	var mallas := []
 	for i in 5:
 		mallas.append(_malla_piedra(material))
@@ -123,6 +127,27 @@ func _crear_piedras(s: Dictionary) -> void:
 			piedra.scale = Vector3(randf_range(0.95, 1.25), randf_range(0.6, 0.85), randf_range(0.95, 1.25)) * tam
 			piedra.rotation.y = randf() * TAU
 			piedra.position = Vector3(cos(angulo), 0.0, sin(angulo)) * (s.radio + 0.1) + Vector3.UP * (tam * 0.4 + hilera * 0.14)
+			_construido.add_child(piedra)
+
+
+# Las piedras del pack (modelos/piedras.glb), a la medida de cada lugar del aro y un poco hundidas en la tierra.
+func _crear_piedras_modelo(s: Dictionary, modelos: Array, material: Material) -> void:
+	for hilera in s.hileras:
+		var cuantas: int = s.piedras - hilera * 3
+		for i in cuantas:
+			var angulo: float = TAU * (i + 0.5 * hilera) / cuantas + randf_range(-0.04, 0.04)
+			var tam: float = randf_range(0.15, 0.21) * (1.0 - hilera * 0.1)
+			var m: Dictionary = modelos.pick_random()
+			var caja: AABB = m.aabb
+			var k: float = 2.0 * tam / maxf(0.01, maxf(caja.size.x, caja.size.z))
+			var esc := Vector3(randf_range(0.95, 1.15), randf_range(0.65, 0.9) * minf(1.0, 0.9 * maxf(caja.size.x, caja.size.z) / maxf(0.01, caja.size.y)), randf_range(0.95, 1.15)) * k
+			var base := Basis(Vector3.UP, randf() * TAU) * Basis.from_scale(esc)
+			var apoyo := Vector3(caja.get_center().x, caja.position.y + caja.size.y * 0.12, caja.get_center().z)
+			var donde: Vector3 = Vector3(cos(angulo), 0.0, sin(angulo)) * (s.radio + 0.1) + Vector3.UP * hilera * 0.12
+			var piedra := MeshInstance3D.new()
+			piedra.mesh = m.mesh
+			piedra.material_override = material
+			piedra.transform = Transform3D(base, donde - base * apoyo)
 			_construido.add_child(piedra)
 
 
@@ -312,6 +337,38 @@ func _material_difuso() -> StandardMaterial3D:
 	mat.vertex_color_use_as_albedo = true
 	mat.albedo_texture = tex
 	return mat
+
+
+# Chispas del pedernal o del fósforo: un puñadito que salta y cae.
+func estallido(pos: Vector3, cantidad: int) -> void:
+	var g := GPUParticles3D.new()
+	g.amount = cantidad
+	g.lifetime = 0.6
+	g.one_shot = true
+	g.explosiveness = 1.0
+	g.local_coords = false
+	g.visibility_aabb = AABB(Vector3(-2, -1, -2), Vector3(4, 3, 4))
+	var p := ParticleProcessMaterial.new()
+	p.direction = Vector3.UP
+	p.spread = 70.0
+	p.initial_velocity_min = 0.6
+	p.initial_velocity_max = 1.8
+	p.gravity = Vector3(0.0, -4.0, 0.0)
+	p.scale_min = 0.006
+	p.scale_max = 0.014
+	p.color = Llamas.TODAS[pozo.spec().llama].chispa
+	g.process_material = p
+	var punto := SphereMesh.new()
+	punto.radius = 0.5
+	punto.height = 1.0
+	punto.radial_segments = 6
+	punto.rings = 3
+	punto.material = _chispa_mat
+	g.draw_pass_1 = punto
+	add_child(g)
+	g.global_position = pos + Vector3.UP * 0.05
+	g.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(g.queue_free)
 
 
 # Una nubecita de polvo gris que sube y se deshace: al volverse ceniza una pieza y al rastrillar.

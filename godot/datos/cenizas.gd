@@ -2,7 +2,7 @@ class_name Cenizas
 # Progreso permanente entre partidas. La ceniza se gana al amanecer y al renacer, y se gasta en estas mejoras.
 # efectos: ver datos/mods.gd. semilla, hogar y atajo se leen al empezar la partida (Estado.bonos_de_inicio).
 
-const ATAJOS := [["calor", "tienda", "construir", "chispazos"], ["habilidades"], ["clima"]]
+const ATAJOS := [["calor", "tienda", "construir"], ["habilidades"], ["clima"]]
 
 const MEJORAS := [
 	{"id": "semilla", "icono": "🌱", "nombre": "Semilla de leñador", "desc": "Empezás cada partida con +4 fósforos y +4 ramas por nivel.", "max": 5, "base": 3.0, "k": 1.5},

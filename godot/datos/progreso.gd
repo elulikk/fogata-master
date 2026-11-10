@@ -6,7 +6,6 @@ const HITOS := [
 	{"id": "calor", "en": 2, "aviso": "Tu fogata da calor. El calor es tu moneda: juntalo."},
 	{"id": "tienda", "en": 15, "objetivo": "antes", "que": "abre Pyroshop, que vende leña", "icono": "🛒", "aviso": "Abrió Pyroshop: te vende leña a cambio de calor."},
 	{"id": "construir", "en": 40, "objetivo": "antes", "que": "podés evolucionar la fogata", "icono": "🔨", "aviso": "Ya podés construir: evolucioná la fogata para que entre leña."},
-	{"id": "chispazos", "en": 60, "objetivo": "antes", "que": "los chasquidos largan chispazos", "icono": "💫", "aviso": "Los chasquidos fuertes largan chispazos: pasá el mouse por arriba para juntarlos."},
 	{"id": "habilidades", "en": 120, "objetivo": "antes", "que": "se abre el árbol de habilidades", "icono": "🌳", "aviso": "Se abrió el árbol de habilidades: al subir de nivel ganás puntos."},
 	{"id": "clima", "en": 450, "aviso": "Se está nublando… desde ahora puede llover. Mirá el pronóstico arriba."},
 	{"id": "viento", "en": 1600, "objetivo": "despues", "que": "empieza a soplar el viento", "icono": "💨", "aviso": "Empieza a soplar viento: aviva el fuego, pero lo consume más rápido."},

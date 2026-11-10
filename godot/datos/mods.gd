@@ -10,7 +10,7 @@ const TABLA := {
 	"dry": [1.0, "suma"], "bed_decay": [1.0, "mult"], "rain_resist": [0.0, "suma"], "bellows": [1.0, "suma"], "level_ease": [1.0, "mult"],
 	"combo_cap": [1.0, "suma"], "ash_heat": [0.0, "suma"], "blaze": [0.0, "suma"], "tribute": [0.0, "suma"], "night_ease": [1.0, "mult"],
 	"cold_slow": [1.0, "suma"], "ash_bonus": [1.0, "suma"], "enlarge_cost": [1.0, "mult"], "structure_bonus": [1.0, "suma"],
-	"fill_threshold": [0.4, "suma"], "cupo_rama": [0.0, "suma"], "cupo_lena": [0.0, "suma"], "cupo_tronco": [0.0, "suma"],
+	"fill_threshold": [0.4, "suma"], "orb_value": [1.0, "suma"], "orb_pull": [0.0, "suma"], "cupo_rama": [0.0, "suma"], "cupo_lena": [0.0, "suma"], "cupo_tronco": [0.0, "suma"],
 }
 
 
