@@ -1,4 +1,4 @@
-// Estado de la partida: recursos, calor, desbloqueos, compras y cartas.
+// Estado de la partida: recursos, calor, desbloqueos, compras y habilidades.
 // Se guarda solo en localStorage.
 
 import { freshNight, nightGoalNow, coldOf, NIGHT_PHASES } from '../data/nights.js';
@@ -6,20 +6,21 @@ import { META, KEEP_UNLOCKS, freshMeta, ashFromRun } from '../data/meta.js';
 import { MILESTONES, levelProgress } from '../data/progress.js';
 import { ACHIEVEMENTS } from '../data/achievements.js';
 import { MAX_SIZE, STRUCTURE, capacityOf, sizeOf, hearthPerks } from '../data/sizes.js';
-import { WOODS, woodKey } from '../data/woods.js';
-import { allItems } from '../data/shop.js';
+import { WOODS } from '../data/woods.js';
+import { allItems, itemsWithEffects } from '../data/shop.js';
+import { SKILLS, canLearn } from '../data/skills.js';
+import { emptyMods, applyEffects } from '../data/mods.js';
 import { HEAT } from '../utils/heat.js';
 
-const KEY = 'fogata-master-save-v1';
-const VERSION = 5;
+// v2: árbol de habilidades y cupos por escalón. Los guardados de antes (con cartas) no se leen.
+export const SAVE_KEY = 'fogata-master-save-v2';
+const KEY = SAVE_KEY;
+const VERSION = 6;
 const CALOR_PER_INTENSITY = 2;
 
-export const START_RES = { pino_rama: 6, pino_lena: 2, pino_tronco: 2, pina: 0, fosforo: 3 };
+// Se arranca con ramas y un pedernal: el primer fuego lo prende el jugador (ver data/tutorial.js).
+export const START_RES = { pino_rama: 6, pina: 0, fosforo: 0 };
 export const WOOD_KEYS = Object.keys(WOODS);
-// Con qué especie se paga en troncos: primero la más floja.
-const PAY_ORDER = ['humeda', 'pino', 'lenga', 'rauli', 'roble', 'quebracho'];
-// v3 → v4: las maderas viejas pasan a especie y tamaño.
-const LEGACY_WOOD = { rama: 'pino_rama', seca: 'pino_lena', tronco: 'pino_tronco', humeda: 'humeda_lena' };
 
 function prefersReducedMotion() {
   try { return !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
@@ -29,15 +30,18 @@ function fresh() {
   return {
     version: VERSION,
     res: { ...START_RES },
-    tool: 'fosforo', // herramienta elegida en la barra (ver data/tools.js)
+    tool: 'pedernal', // herramienta elegida en la barra (ver data/tools.js)
+    tuto: 0,          // paso del tutorial (ver data/tutorial.js)
+    dropped: 0,       // piezas de leña puestas en el fuego
     calor: 0,
     totalCalor: 0,
     level: 1,
+    extraPoints: 0,   // puntos de habilidad que regalan los amaneceres
+    arbol: {},        // habilidad -> nivel (ver data/skills.js)
     unlocked: {},
     seenWood: { pino: true },
     bought: {},
     demand: {}, // demanda de los consumibles: sube al comprar, baja sola (ver data/shop.js)
-    cards: {},
     pits: [{ size: 0, roof: false }],
     playTime: 0,
     settings: { volume: 0.8, muted: false, reduceMotion: prefersReducedMotion() },
@@ -57,30 +61,17 @@ function deepMerge(base, saved) {
   return out;
 }
 
-// Lleva cualquier guardado (v1 o v2) a la forma actual.
+// Lleva un guardado a la forma actual: completa lo que falte y acota los tamaños.
 function migrate(saved) {
-  if ((saved.version || 1) < 4 && isObj(saved.res)) {
-    const res = { ...saved.res };
-    const seen = { pino: true };
-    if (saved.seenWood?.pina) seen.pina = true;
-    for (const key of Object.keys(START_RES)) if (WOODS[key] && !(key in res)) res[key] = 0;
-    for (const [old, key] of Object.entries(LEGACY_WOOD)) {
-      res[key] = (res[key] || 0) + (res[old] || 0);
-      delete res[old];
-    }
-    if (res.humeda_lena > 0) seen.humeda = true;
-    saved = { ...saved, res, seenWood: seen };
-  }
   const data = deepMerge(fresh(), saved);
   const s = data.settings;
   s.volume = Math.min(1, Math.max(0, Number(s.volume) || 0));
-  // v3: tamaños 0–7. Los pozos viejos (0–3) conservan su tamaño; solo se acota y se
-  // sincroniza la compra de "agrandar" con el tamaño real.
   data.pits.forEach((p, i) => {
     p.size = Math.min(MAX_SIZE, Math.max(0, p.size | 0));
     if (p.size) data.bought[`agrandar_${i}`] = p.size;
     else delete data.bought[`agrandar_${i}`];
   });
+  for (const id of Object.keys(data.arbol)) if (!SKILLS[id]) delete data.arbol[id];
   data.version = VERSION;
   return data;
 }
@@ -168,8 +159,9 @@ export class GameState {
   // Bonos de la meta al empezar una partida.
   applyRunStart() {
     const u = (id) => this.data.meta.upgrades[id] || 0;
-    this.data.res.fosforo += 4 * u('semilla');
-    this.data.res.pino_tronco += 3 * u('semilla');
+    this.add('fosforo', 4 * u('semilla'));
+    this.add('pino_rama', 4 * u('semilla'));
+    if (u('semilla')) this.data.unlocked.fosforo = true;
     const start = Math.min(3, u('hogar'));
     if (start) {
       this.data.pits[0].size = start;
@@ -194,6 +186,7 @@ export class GameState {
       if (!isObj(json) || typeof json.totalCalor !== 'number' || !isObj(json.res)) {
         return { ok: false, error: 'El texto no parece un guardado de Fogata Master.' };
       }
+      if ((json.version || 1) < VERSION) return { ok: false, error: 'Ese guardado es de una versión anterior del juego.' };
       this.data = migrate(json);
       this.recompute();
       this.stale = false; // importar es una decisión explícita: manda sobre otra pestaña
@@ -207,7 +200,6 @@ export class GameState {
   get res() { return this.data.res; }
   get unlocked() { return this.data.unlocked; }
   get bought() { return this.data.bought; }
-  get cards() { return this.data.cards; }
   get pits() { return this.data.pits; }
   get meta() { return this.data.meta; }
 
@@ -269,18 +261,10 @@ export class GameState {
     items.sort((a, b) => (a.goal ?? 99) - (b.goal ?? 99));
     for (const it of items) {
       if (it.blocked?.()) continue;
-      const lvl = d.bought[it.id] || 0;
-      const p = this.price(it.cost(lvl));
-      const needC = Math.max(0, p.calor - d.calor);
-      const needT = Math.max(0, p.tronco - this.troncos());
-      const name = it.name;
-      if (!needC && !needT) return { icon: it.icon, text: `${name}: ya podés comprarlo.`, progress: 1 };
-      const parts = [];
-      if (needC) parts.push(`${Math.ceil(needC)} ${HEAT}`);
-      if (needT) parts.push(`${needT} 🪵`);
-      const hint = needT ? ', el Mercachifle los vende' : '';
-      const frac = Math.min(p.calor ? d.calor / p.calor : 1, p.tronco ? this.troncos() / p.tronco : 1);
-      return { icon: it.icon, text: `${name}: te faltan ${parts.join(' y ')}${hint}.`, progress: Math.max(0, Math.min(1, frac)) };
+      const p = this.price(it.cost(d.bought[it.id] || 0));
+      const need = Math.max(0, p.calor - d.calor);
+      if (!need) return { icon: it.icon, text: `${it.name}: ya podés comprarlo.`, progress: 1 };
+      return { icon: it.icon, text: `${it.name}: te faltan ${Math.ceil(need)} ${HEAT}.`, progress: Math.max(0, Math.min(1, p.calor ? d.calor / p.calor : 1)) };
     }
     return this.nextMilestone('late');
   }
@@ -299,11 +283,6 @@ export class GameState {
     if (n > 0 && WOODS[key]) this.data.seenWood[WOODS[key].species] = true;
   }
 
-  // Troncos de cualquier especie: son lo que se paga en la tienda.
-  troncos() {
-    return PAY_ORDER.reduce((sum, sp) => sum + (this.data.res[woodKey(sp, 'tronco')] || 0), 0);
-  }
-
   gainCalor(n) {
     this.data.calor += n;
     this.data.totalCalor += n;
@@ -314,27 +293,23 @@ export class GameState {
   }
 
   price(cost) {
-    return {
-      calor: Math.ceil((cost.calor || 0) * this.mods.discount * (cost.enlarge ? this.mods.enlargeCost : 1)),
-      tronco: cost.tronco || 0,
-    };
+    return { calor: Math.ceil((cost.calor || 0) * this.mods.discount * (cost.enlarge ? this.mods.enlargeCost : 1)) };
   }
 
   canPay(cost) {
-    const p = this.price(cost);
-    return this.data.calor >= p.calor && this.troncos() >= p.tronco;
+    return this.data.calor >= this.price(cost).calor;
   }
 
   pay(cost) {
-    const p = this.price(cost);
-    this.data.calor -= p.calor;
-    let left = p.tronco;
-    for (const sp of PAY_ORDER) {
-      const key = woodKey(sp, 'tronco');
-      const take = Math.min(left, this.data.res[key] || 0);
-      this.data.res[key] = (this.data.res[key] || 0) - take;
-      left -= take;
-    }
+    this.data.calor -= this.price(cost).calor;
+  }
+
+  // Gasta un punto de habilidad en ese nodo. Devuelve true si se pudo.
+  spendPoint(id) {
+    if (!canLearn(this.data, id)) return false;
+    this.data.arbol[id] = (this.data.arbol[id] || 0) + 1;
+    this.recompute();
+    return true;
   }
 
   // --- Nivel, ritmo de calor, noches y ceniza ---
@@ -374,7 +349,7 @@ export class GameState {
     if (raw > 0) add('pozos', 'Pozos grandes', (sized - struct) / raw);
     if (struct > 0.005 && sized > struct) parts.push({ id: 'estructura', label: 'Estructura', text: `+${Math.round((struct / (sized - struct)) * 100)}%` });
     if (bed > 0.01) parts.push({ id: 'lecho', label: 'Lecho cálido', text: `+${bed.toFixed(1)}/s` });
-    add('cartas', 'Cartas', m.calor);
+    add('habilidades', 'Habilidades', m.calor);
     add('incendio', 'Incendio', blaze);
     add('cenizas', 'Cenizas', m.cosecha);
     return { total, parts };
@@ -436,52 +411,22 @@ export class GameState {
     this.data.meta.totalAsh += n;
   }
 
-  // Multiplicadores que salen de las cartas, de lo comprado y de la meta.
+  // Todos los efectos del juego, de cualquier origen, se resuelven igual (ver data/mods.js):
+  // habilidades, mejoras de ceniza, logros y compras declaran `effects`.
   recompute() {
-    const c = (id) => this.data.cards[id] || 0;
-    const b = (id) => this.data.bought[id] || 0;
-    const u = (id) => this.data.meta.upgrades[id] || 0;
-    const ach = { calor: 0, fuel: 0, loot: 0, orbs: 0, discount: 0, ash: 0 };
-    for (const a of ACHIEVEMENTS) {
-      if (!this.data.meta.achievements[a.id]) continue;
-      for (const [k, v] of Object.entries(a.reward)) ach[k] += v;
-    }
-    this.ach = ach;
-    this.mods = {
-      calor: 1 + 0.15 * c('calor') + 0.25 * c('combustion'),
-      cosecha: 1 + 0.08 * u('cosecha') + ach.calor,
-      fuel: (1 + 0.15 * c('duracion') + 0.1 * c('resina') + ach.fuel) * Math.pow(0.9, c('combustion')),
-      embers: 1 + 0.3 * c('brasas'),
-      warm: Math.pow(0.8, c('yesca')),
-      ignite: Math.pow(0.92, c('yesca')),
-      draft: 1 + 0.1 * c('tiraje'),
-      orbs: 0.85 * (1 + 0.3 * c('chispazos') + ach.orbs) * (1 + 0.15 * u('olfato')),
-      magnet: (1 + 0.4 * c('iman')) * (1 + 0.15 * u('olfato')),
-      loot: (1 + 0.15 * c('canasta') + ach.loot) * (1 + 0.25 * b('canasta')),
-      pinas: 1 + 0.25 * c('resina'),
-      helperEvery: Math.pow(0.85, c('botas')),
-      pileCap: 1 + b('lenera'),
-      discount: Math.pow(0.9, c('regateo')) * Math.pow(0.96, u('fiel')) * (1 - ach.discount),
-      dry: 1 + 0.4 * c('secado'),
-      bedDecay: Math.pow(0.7, c('piedras')),
-      rainResist: Math.min(0.8, 0.2 * c('lluvia')),
-      bellows: 1 + 0.3 * c('fuelle'),
-      // Nuevos
-      levelEase: Math.pow(0.94, u('memoria')),
-      comboCap: 1 + 0.1 * c('chispa-en-cadena'), // techo ×1.3 con 3 cartas
-      ashHeat: 0.5 * c('cenizas'),               // calor/s por lecho de brasas lleno
-      blaze: 0.05 * c('incendio'),               // +5% por leño ardiendo desde el 3.º (hasta 4 extra)
-      tribute: 12 * c('tributo'),                // segundos de calor por nivel
-      nightEase: Math.pow(0.88, c('vigilia')) * Math.pow(0.92, u('abrigo')) * Math.min(...this.data.pits.map((p) => hearthPerks(p.size).nightEase)),
-      coldSlow: 1 + 0.2 * c('vigilia') + 0.1 * u('abrigo'),
-      ashBonus: 1 + 0.1 * u('fortuna') + ach.ash,
-      base: 0.6,
-      enlargeCost: Math.pow(0.9, c('cantera')) * Math.pow(0.95, u('canteraeterna')),
-      structureBonus: (1 + 0.5 * c('chimenea')) * (1 + 0.1 * u('arquitecto')),
-      fillThreshold: 0.4 - 0.12 * c('fogonero'), // carga (fracción de la capacidad) que da el bonus de tamaño pleno
-      startSize: Math.min(3, u('hogar')),
-      peakSecs: 20, // fogata pico: segundos de calor que regala
-      extraSlots: [c('hueco_rama'), c('hueco_lena'), c('hueco_tronco')], // lugares de más por tipi, por tamaño
-    };
+    const d = this.data;
+    const m = emptyMods();
+    for (const [id, n] of Object.entries(d.arbol)) applyEffects(m, SKILLS[id]?.effects, n);
+    for (const u of META) applyEffects(m, u.effects, d.meta.upgrades[u.id] || 0);
+    for (const a of ACHIEVEMENTS) if (d.meta.achievements[a.id]) applyEffects(m, a.effects, 1);
+    for (const it of itemsWithEffects()) applyEffects(m, it.effects, d.bought[it.id] || 0);
+    // Lo que no sale directo de la tabla.
+    m.fuel *= m.fuelMult;
+    m.rainResist = Math.min(0.8, m.rainResist);
+    m.nightEase *= Math.min(...d.pits.map((p) => hearthPerks(p.size).nightEase));
+    m.base = 0.6;
+    m.peakSecs = 20; // fogata pico: segundos de calor que regala
+    m.extraSlots = [m.slotRama, m.slotLena, m.slotTronco]; // lugares de más por fogata, por corte
+    this.mods = m;
   }
 }

@@ -614,6 +614,13 @@ export class FireAudio {
   }
 
   // La leña abandonada vuelve al estante: whoosh corto ascendente y "plop" de apoyo.
+  // Rastrillo: dos pasadas ásperas sobre la ceniza.
+  rake() {
+    if (!this.on || !this.throttle('rake', 150)) return;
+    this.burst({ buf: this.brown, type: 'bandpass', freq: 1200, freqEnd: 500, q: 0.8, attack: 0.05, decay: 0.35, vol: 0.3 });
+    this.burst({ type: 'bandpass', freq: 2400, freqEnd: 900, q: 0.7, attack: 0.04, decay: 0.25, vol: 0.12, when: 0.15 });
+  }
+
   logReturn() {
     if (!this.on || !this.throttle('logReturn', 120)) return;
     this.burst({ buf: this.brown, type: 'bandpass', freq: 300, freqEnd: 900, q: 0.9, attack: 0.06, decay: 0.2, vol: 0.25 });

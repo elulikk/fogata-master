@@ -1,6 +1,7 @@
 // Prestigio "Cenizas": progreso permanente entre partidas.
 // La ceniza se gana al amanecer (ver nights.js) y al hacer prestigio, y se gasta
-// en estas mejoras. Prestigio reinicia la partida pero conserva `meta`
+// en estas mejoras (`effects`: ver data/mods.js; semilla, hogar y atajo se leen al empezar la partida).
+// Renacer reinicia la partida pero conserva `meta`
 // (ceniza, mejoras, amaneceres totales, prestigios) y los ajustes.
 
 import { sizeOf } from './sizes.js';
@@ -10,49 +11,49 @@ const pct = (v) => `${v > 0 ? '+' : ''}${Math.round(v)}%`;
 
 // Hitos que "atajo" deja desbloqueados al empezar de nuevo, por nivel de la mejora.
 export const KEEP_UNLOCKS = [
-  ['calor', 'tienda', 'chispazos'],
-  ['cartas'],
-  ['clima', 'construir'],
+  ['calor', 'tienda', 'construir'],
+  ['habilidades'],
+  ['clima'],
 ];
 
 export const META = [
   {
-    id: 'semilla', icon: '🌱', name: 'Semilla de leñador', desc: 'Empezás cada partida con más fósforos y troncos.', max: 5,
+    id: 'semilla', icon: '🌱', name: 'Semilla de leñador', desc: 'Empezás cada partida con +4 fósforos y +4 ramas por nivel.', max: 5,
     cost: (n) => grow(3, 1.5, n),
-    effect: (n) => ({ label: 'Al empezar', before: `+${4 * n} fósf. +${3 * n} troncos`, after: `+${4 * (n + 1)} fósf. +${3 * (n + 1)} troncos` }),
+    effect: (n) => ({ label: 'Al empezar', before: `+${4 * n} fósf. +${4 * n} ramas`, after: `+${4 * (n + 1)} fósf. +${4 * (n + 1)} ramas` }),
   },
   {
-    id: 'cosecha', icon: '🌾', name: 'Cosecha de brasas', desc: '+8% de calor de todas las fogatas, para siempre.', max: 10,
+    id: 'cosecha', icon: '🌾', name: 'Cosecha de brasas', desc: '+8% de calor de todas las fogatas, para siempre.', max: 10, effects: { cosecha: 0.08 },
     cost: (n) => grow(3, 1.45, n),
     effect: (n) => ({ label: 'Calor', before: pct(8 * n), after: pct(8 * (n + 1)) }),
   },
   {
-    id: 'memoria', icon: '📜', name: 'Memoria de fogón', desc: 'Subir de nivel pide 6% menos calor.', max: 5,
+    id: 'memoria', icon: '📜', name: 'Memoria de fogón', desc: 'Subir de nivel pide 6% menos calor.', max: 5, effects: { levelEase: 0.94 },
     cost: (n) => grow(4, 1.6, n),
     effect: (n) => ({ label: 'Calor por nivel', before: pct((Math.pow(0.94, n) - 1) * 100), after: pct((Math.pow(0.94, n + 1) - 1) * 100) }),
   },
   {
-    id: 'fiel', icon: '🧑‍💼', name: 'Cliente fiel', desc: 'El mercachifle te cobra 4% menos.', max: 5,
+    id: 'fiel', icon: '🧑‍💼', name: 'Cliente fiel', desc: 'Pyroshop te cobra 4% menos.', max: 5, effects: { discount: 0.96 },
     cost: (n) => grow(4, 1.6, n),
     effect: (n) => ({ label: 'Precios', before: pct((Math.pow(0.96, n) - 1) * 100), after: pct((Math.pow(0.96, n + 1) - 1) * 100) }),
   },
   {
-    id: 'abrigo', icon: '🧣', name: 'Abrigo', desc: 'Las noches piden 8% menos calor y el frío llega más lento.', max: 5,
+    id: 'abrigo', icon: '🧣', name: 'Abrigo', desc: 'Las noches piden 8% menos calor y el frío llega más lento.', max: 5, effects: { nightEase: 0.92, coldSlow: 0.1 },
     cost: (n) => grow(5, 1.6, n),
     effect: (n) => ({ label: 'Meta de la noche', before: pct((Math.pow(0.92, n) - 1) * 100), after: pct((Math.pow(0.92, n + 1) - 1) * 100) }),
   },
   {
-    id: 'fortuna', icon: '🍀', name: 'Mano de ceniza', desc: '+10% de ceniza en cada amanecer y prestigio.', max: 5,
+    id: 'fortuna', icon: '🍀', name: 'Mano de ceniza', desc: '+10% de ceniza en cada amanecer y al renacer.', max: 5, effects: { ashBonus: 0.1 },
     cost: (n) => grow(6, 1.8, n),
     effect: (n) => ({ label: 'Ceniza ganada', before: pct(10 * n), after: pct(10 * (n + 1)) }),
   },
   {
-    id: 'atajo', icon: '🧭', name: 'Camino conocido', desc: 'Empezás con parte de lo desbloqueado: tienda y chispazos, luego cartas, luego construir.', max: 3,
+    id: 'atajo', icon: '🧭', name: 'Camino conocido', desc: 'Empezás con parte de lo desbloqueado: Pyroshop y construir, luego habilidades, luego el clima.', max: 3,
     cost: (n) => grow(6, 2, n),
-    effect: (n) => ({ label: 'Desbloqueado al empezar', before: ['nada', 'tienda y chispazos', '+ cartas'][n], after: ['tienda y chispazos', '+ cartas', '+ construir'][n] }),
+    effect: (n) => ({ label: 'Desbloqueado al empezar', before: ['nada', 'Pyroshop y construir', '+ habilidades'][n], after: ['Pyroshop y construir', '+ habilidades', '+ clima'][n] }),
   },
   {
-    id: 'olfato', icon: '👃', name: 'Olfato de chispa', desc: '+15% de chispazos y de su alcance.', max: 5,
+    id: 'olfato', icon: '👃', name: 'Olfato de chispa', desc: '+15% de chispazos y de su alcance.', max: 5, effects: { orbs: 0.15, magnet: 0.15 },
     cost: (n) => grow(4, 1.5, n),
     effect: (n) => ({ label: 'Chispazos', before: pct(15 * n), after: pct(15 * (n + 1)) }),
   },
@@ -62,12 +63,12 @@ export const META = [
     effect: (n) => ({ label: 'Fogata inicial', before: sizeOf(n).name, after: sizeOf(n + 1).name }),
   },
   {
-    id: 'arquitecto', icon: '📐', name: 'Arquitecto', desc: '+10% al bonus de las estructuras.', max: 3,
+    id: 'arquitecto', icon: '📐', name: 'Arquitecto', desc: '+10% al bonus de las fogatas armadas.', max: 3, effects: { structureBonus: 0.1 },
     cost: (n) => grow(6, 1.8, n),
     effect: (n) => ({ label: 'Bonus de estructura', before: pct(10 * n), after: pct(10 * (n + 1)) }),
   },
   {
-    id: 'canteraeterna', icon: '🪨', name: 'Cantera eterna', desc: 'Agrandar fogatas cuesta 5% menos.', max: 5,
+    id: 'canteraeterna', icon: '🪨', name: 'Cantera eterna', desc: 'Agrandar fogatas cuesta 5% menos.', max: 5, effects: { enlargeCost: 0.95 },
     cost: (n) => grow(4, 1.5, n),
     effect: (n) => ({ label: 'Costo de agrandar', before: pct((Math.pow(0.95, n) - 1) * 100), after: pct((Math.pow(0.95, n + 1) - 1) * 100) }),
   },
@@ -77,11 +78,11 @@ export function freshMeta() {
   return {
     ash: 0, upgrades: {}, totalDawns: 0, prestiges: 0, totalAsh: 0,
     achievements: {},
-    stats: { orbs: 0, maxRate: 0 }, // de por vida
+    stats: { orbs: 0, maxRate: 0, structure90: 0 }, // de por vida
   };
 }
 
-// Ceniza que daría hacer prestigio ahora: 2,5·(calor/1000)^0,6 + 0,5 por amanecer.
+// Ceniza que daría renacer ahora: 2,5·(calor/1000)^0,6 + 0,5 por amanecer.
 // Referencia (sin bonos): 2.500 y 1 amanecer → 4; 6.000 y 2 → 8; 15.000 y 3 → 14;
 // 50.000 y 5 → 29; 200.000 y 8 → 64 (un amanecer da 3, 4, 5…).
 export function ashFromRun(totalCalor, mods, dawns = 0) {

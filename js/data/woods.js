@@ -12,8 +12,8 @@
 // Un fósforo da 0,8: prende cualquier rama, no la leña (salvo la de pino) y nunca un tronco.
 export const CUTS = {
   rama: {
-    tier: 0, name: 'Rama', plural: 'ramas', shape: 'stick', length: 84, thickness: 13, bundle: 4, price: 1,
-    ignite: 0.12, warm: 0.25, fuel: 10, heat: 0.9, lights: 'Prende con un fósforo o casi nada de calor',
+    tier: 0, name: 'Rama', plural: 'ramas', shape: 'stick', length: 84, thickness: 13, bundle: 2, price: 1,
+    ignite: 0.12, warm: 0.25, fuel: 22, heat: 1.2, lights: 'Prende con un fósforo o casi nada de calor',
     flame: 'S', flameRate: 1.3, smoke: 0.35, crackle: 5, sparks: 1.3, weight: 'light',
   },
   lena: {
@@ -105,9 +105,6 @@ function build() {
 }
 
 export const WOODS = build();
-
-// Área de un tipi completo: dos piezas de cada tamaño (de acá sale cuánta leña "llena" un pozo).
-export const TIPI_AREA = CUT_ORDER.reduce((sum, c) => sum + 2 * CUTS[c].length * CUTS[c].thickness, 0);
 
 // Especie que trae una entrega, según tu mejor fogata: las nuevas aparecen menos que las comunes.
 export function rollSpecies(hearth, rand = Math.random) {

@@ -1564,3 +1564,157 @@ kbd {
   backdrop-filter: none;
   background: rgba(8, 5, 3, 0.82);
 }
+
+/* ===== Ventanas que pausan el juego: Pyroshop, construir, habilidades, cenizas y dev ===== */
+#veil {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 3, 0, 0.62);
+  pointer-events: auto;
+  animation: fadein 0.15s;
+  z-index: 4;
+}
+
+#panel {
+  left: 50%;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  width: min(720px, 94%);
+  max-height: 84%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  animation: window-in 0.18s ease-out;
+}
+
+#panel.wide { width: min(1180px, 97%); }
+
+@keyframes window-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+}
+
+/* Con una ventana abierta, los botones que la abren quedan por encima del velo para poder cambiar de una a otra. */
+#actions, #hud-right { z-index: 6; }
+
+.item .lvl { margin-left: 6px; }
+
+/* Puntos de habilidad sin gastar. */
+.lvl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+#lvl-points, .badge {
+  color: #ffd36b;
+  font-size: 12px;
+  font-weight: 600;
+}
+#lvl-points:empty, .badge:empty { display: none; }
+.badge {
+  position: relative;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 211, 107, 0.5);
+  margin-left: auto;
+}
+
+/* --- Árbol de habilidades --- */
+#panel-list.tab-arbol { gap: 10px; }
+
+.tree-points {
+  font-size: 14px;
+  color: var(--muted);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.tree-points.has { color: #ffd36b; font-weight: 600; border-color: rgba(255, 211, 107, 0.35); }
+
+.tree { display: flex; gap: 10px; align-items: stretch; }
+
+.branch {
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 170, 90, 0.14);
+  border-radius: 12px;
+  padding: 8px;
+}
+
+.branch h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ember);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.branch .nodes { display: grid; gap: 6px; grid-auto-rows: 1fr; }
+
+#ui .skill {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-height: 84px;
+  padding: 6px 4px 5px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  text-align: center;
+  transition: transform 0.08s, background 0.12s, border-color 0.12s;
+}
+.skill .s-ico { font-size: 22px; line-height: 1.15; }
+.skill .s-name { font-size: 12px; font-weight: 600; line-height: 1.1; }
+.skill .s-lvl { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.skill .s-cost {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 10px;
+  color: var(--muted);
+}
+.skill.owned { border-color: rgba(255, 170, 90, 0.45); background: rgba(255, 150, 60, 0.12); }
+.skill.owned .s-lvl { color: #ffd7a0; }
+.skill.can { border-color: #ffd36b; background: linear-gradient(180deg, rgba(200, 98, 31, 0.55), rgba(141, 60, 16, 0.45)); }
+.skill.can .s-cost { color: #ffd36b; }
+.skill.can:hover { transform: translateY(-1px); filter: brightness(1.15); }
+.skill.locked { opacity: 0.42; }
+.skill.maxed { border-color: rgba(159, 211, 107, 0.5); }
+.skill.maxed .s-cost, .skill.maxed .s-lvl { color: var(--good); }
+#ui .skill:not(.can) { cursor: default; }
+
+#tree-detail {
+  min-height: 44px;
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--panel-line);
+}
+#tree-detail .d-hint, #tree-detail .d-lvl { color: var(--muted); }
+#tree-detail .d-st { color: #ffd7a0; }
+
+/* --- Menú de desarrollo --- */
+#panel-list.tab-dev h3 {
+  margin: 6px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.dev-note { font-size: 12px; color: var(--muted); }
+.dev-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.dev-grid .act { min-width: 0; justify-content: flex-start; }
+.dev-grid .act.done { animation: dev-done 0.5s; }
+@keyframes dev-done { 30% { filter: brightness(1.7); border-color: var(--good); } }
+#btn-dev { color: var(--rain); }
+
+/* Fogata ahogada en ceniza. */
+.pit-tag.choked { border-color: rgba(190, 185, 180, 0.6); opacity: 0.95; }
+.pit-tag.choked .t-st { color: #d8d2cc; }
+
+#ui.compact .tree { flex-wrap: wrap; }
+#ui.compact .branch { flex: 1 1 30% !important; }
+#ui.compact .dev-grid { grid-template-columns: repeat(2, 1fr); }

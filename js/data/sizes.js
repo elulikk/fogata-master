@@ -1,12 +1,14 @@
 // Escalera de evolución de la fogata. Para sumar un escalón alcanza con agregar una entrada acá
 // (y su dibujo en gfx/hearths.js, si no reutiliza uno): tienda, ventajas, lugares y fuego salen de esta tabla.
 // - look: dibujo (LOOKS de gfx/hearths.js); flame: paleta del fuego (data/flames.js).
+// - cost: calor que cuesta evolucionar hasta acá. slots: cuánta leña de cada corte entra: la Fogatita solo acepta ramas,
+//   y agrandar habilita más cantidad y más cortes.
 // - tipis, air, half, wallH, margin: lugares y geometría; hs: inercia y luz; burn: qué tan rápido come la leña.
 // - mult: cuánto rinde LLENA respecto de una Fogatita llena (ya cuenta los tipis de más).
 // - perk: ventaja que suma este escalón y conservan los siguientes (ver PERK_RULES).
 // Los índices 0–7 coinciden con el tamaño de las partidas viejas (bought.agrandar_i = size).
 
-import { TIPI_AREA } from './woods.js';
+import { CUTS, CUT_ORDER } from './woods.js';
 
 // Ancho de terreno disponible para todos los pozos (px de huella sumada).
 export const GROUND_BUDGET = 1000;
@@ -14,40 +16,48 @@ export const GROUND_BUDGET = 1000;
 export const SIZES = [
   {
     id: 'fogatita', name: 'Fogatita', look: 'ronda', flame: 'fuego', cost: null,
+    slots: { rama: 5, lena: 0, tronco: 0 },
     tipis: 1, air: 1.00, half: 90, wallH: 46, margin: 30, mult: 1.0, hs: 1.0, burn: 1.0,
   },
   {
-    id: 'fogata', name: 'Fogata', look: 'pirca', flame: 'fuego', cost: { calor: 320, tronco: 1 },
+    id: 'fogata', name: 'Fogata', look: 'pirca', flame: 'fuego', cost: 70,
+    slots: { rama: 6, lena: 2, tronco: 0 },
     tipis: 1, air: 1.05, half: 100, wallH: 52, margin: 30, mult: 1.5, hs: 1.2, burn: 1.05,
-    perk: { text: 'Piedras calzadas: las brasas duran más.', bedDecay: 0.8 },
+    perk: { text: 'Piedras calzadas: entra leña y las brasas duran más.', bedDecay: 0.8 },
   },
   {
-    id: 'fogon', name: 'Fogón', look: 'parrilla', flame: 'fuego', cost: { calor: 950, tronco: 2 },
+    id: 'fogon', name: 'Fogón', look: 'parrilla', flame: 'fuego', cost: 420,
+    slots: { rama: 6, lena: 4, tronco: 1 },
     tipis: 1, air: 1.10, half: 112, wallH: 58, margin: 34, mult: 2.0, hs: 1.4, burn: 1.15,
-    perk: { text: 'Parrilla de hierro: la leña prende más rápido.', ignite: 0.8 },
+    perk: { text: 'Parrilla de hierro: entra un tronco y la leña prende más rápido.', ignite: 0.8 },
   },
   {
-    id: 'hogar', name: 'Hogar', look: 'chimenea', flame: 'fuego', cost: { calor: 2000, tronco: 3 },
+    id: 'hogar', name: 'Hogar', look: 'chimenea', flame: 'fuego', cost: 2000,
+    slots: { rama: 8, lena: 4, tronco: 2 },
     tipis: 2, air: 1.15, half: 126, wallH: 64, margin: 36, mult: 3.5, hs: 1.6, burn: 1.25,
     perk: { text: 'Chimenea de ladrillo: la lluvia no le llega, no hace falta techo.', covered: true },
   },
   {
-    id: 'horno', name: 'Horno de barro', look: 'horno', flame: 'fuego', cost: { calor: 6000, tronco: 5 },
+    id: 'horno', name: 'Horno de barro', look: 'horno', flame: 'fuego', cost: 6000,
+    slots: { rama: 8, lena: 6, tronco: 3 },
     tipis: 2, air: 1.20, half: 142, wallH: 72, margin: 44, mult: 4.5, hs: 1.8, burn: 1.0,
     perk: { text: 'El barro guarda el calor: gasta menos leña que el Hogar y el lecho casi no se enfría.', bedDecay: 0.6 },
   },
   {
-    id: 'fragua', name: 'Fragua', look: 'fragua', flame: 'forja', cost: { calor: 20000, tronco: 8 },
+    id: 'fragua', name: 'Fragua', look: 'fragua', flame: 'forja', cost: 20000,
+    slots: { rama: 10, lena: 6, tronco: 4 },
     tipis: 2, air: 1.25, half: 160, wallH: 80, margin: 62, mult: 6.4, hs: 2.0, burn: 1.7,
     perk: { text: 'Fuelle propio: sopla sola y tira más, pero come leña. Abre el quebracho.', bellows: 0.3 },
   },
   {
-    id: 'altohorno', name: 'Alto horno', look: 'altohorno', flame: 'forja', cost: { calor: 80000, tronco: 12 },
+    id: 'altohorno', name: 'Alto horno', look: 'altohorno', flame: 'forja', cost: 80000,
+    slots: { rama: 12, lena: 8, tronco: 6 },
     tipis: 3, air: 1.30, half: 180, wallH: 88, margin: 62, mult: 10, hs: 2.2, burn: 1.8,
     perk: { text: 'Tiro alto: larga muchos más chispazos.', orbs: 1.6 },
   },
   {
-    id: 'granforja', name: 'Gran Forja', look: 'granforja', flame: 'azul', cost: { calor: 300000, tronco: 18 },
+    id: 'granforja', name: 'Gran Forja', look: 'granforja', flame: 'azul', cost: 300000,
+    slots: { rama: 14, lena: 10, tronco: 8 },
     tipis: 3, air: 1.35, half: 205, wallH: 96, margin: 62, mult: 15, hs: 2.4, burn: 2.1,
     perk: { text: 'Fuego azul: su calor espanta el frío y las noches piden 20% menos.', nightEase: 0.8 },
   },
@@ -79,8 +89,8 @@ export function hearthPerks(size) {
   return out;
 }
 
-// Área de leña que llena un pozo de ese tamaño.
-export const capacityOf = (size) => sizeOf(size).tipis * TIPI_AREA;
+// Área de leña que llena un pozo de ese tamaño, sin contar mejoras: base del multiplicador por tamaño.
+export const capacityOf = (size) => CUT_ORDER.reduce((sum, c) => sum + sizeOf(size).slots[c] * CUTS[c].length * CUTS[c].thickness, 0);
 
 // Ancho que ocupa un pozo en el terreno (construcción y margen incluidos).
 export const footprint = (size) => 2 * (sizeOf(size).half + sizeOf(size).margin);

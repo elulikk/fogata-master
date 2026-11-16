@@ -2,35 +2,30 @@
 // Cada hito se cumple una sola vez y puede mostrar un aviso.
 
 // `at`: calor total que lo abre (`when` lo reemplaza si hay otra condición). `goal`: cómo lo anuncia
-// el objetivo de arriba: 'early' va antes que las compras y 'late' después. `reveal`: botón que muestra.
+// el objetivo de arriba: 'early' va antes que las compras y 'late' después. `reveal`: lo que muestra en la interfaz.
 export const MILESTONES = [
   {
-    id: 'calor', at: 2, reveal: 'hud-calor',
+    id: 'calor', at: 2, reveal: ['hud-calor'],
     toast: 'Tu fogata da calor. El calor es tu moneda: juntalo.',
   },
   {
-    id: 'tienda', at: 30, when: (s, g) => s.totalCalor >= 30 || g.woodStock() <= 2, reveal: 'btn-shop',
-    goal: 'early', what: 'llega el Mercachifle, que vende leña', icon: '🛒',
-    toast: 'Llegó un mercachifle: te vende leña a cambio de calor. También podés tocar el + de la pila.',
+    id: 'tienda', at: 15, when: (s, g) => s.totalCalor >= 15 || (s.totalCalor >= 4 && g.woodStock() <= 1), reveal: ['btn-shop'],
+    goal: 'early', what: 'abre Pyroshop, que vende leña', icon: '🛒',
+    toast: 'Abrió Pyroshop: te vende leña a cambio de calor. También podés tocar el + de la pila.',
   },
   {
-    id: 'chispazos', at: 60,
-    goal: 'early', what: 'los chasquidos largan chispazos', icon: '💫',
-    toast: 'Los chasquidos fuertes largan chispazos: pasá el mouse por arriba para juntarlos.',
+    id: 'construir', at: 40, reveal: ['btn-build'],
+    goal: 'early', what: 'podés evolucionar la fogata', icon: '🔨',
+    toast: 'Ya podés construir: evolucioná la fogata para que entre leña.',
   },
   {
-    id: 'cartas', at: 180, reveal: 'level',
-    goal: 'early', what: 'al subir de nivel elegís una carta', icon: '🃏',
-    toast: null, // lo anuncia la primera subida de nivel
+    id: 'habilidades', at: 120, reveal: ['level', 'btn-tree'],
+    goal: 'early', what: 'se abre el árbol de habilidades', icon: '🌳',
+    toast: 'Se abrió el árbol de habilidades: al subir de nivel ganás puntos y los gastás cuando quieras.',
   },
   {
     id: 'clima', at: 450,
     toast: 'Se está nublando… desde ahora puede llover. Mirá el pronóstico arriba.',
-  },
-  {
-    id: 'construir', at: 450, reveal: 'btn-build',
-    goal: 'early', what: 'podés evolucionar la fogata y contratar un leñador', icon: '🔨',
-    toast: 'Ya podés construir: evolucionar la fogata, contratar un leñador y más.',
   },
   {
     id: 'viento', at: 1600,
@@ -38,7 +33,7 @@ export const MILESTONES = [
     toast: 'Empieza a soplar viento: aviva el fuego, pero lo consume más rápido.',
   },
   {
-    id: 'noches', at: 3000, reveal: 'btn-ashes',
+    id: 'noches', at: 3000, reveal: ['btn-ashes'],
     goal: 'late', what: 'se abren las noches', icon: '🌙',
     toast: 'El día se acorta… la primera noche cae en unos 4 minutos. Aguantá el frío hasta el amanecer.',
   },
@@ -53,8 +48,8 @@ export const milestoneDue = (m, data, state) => (m.when ? m.when(data, state) : 
 
 // Calor total necesario para llegar a cada nivel (el nivel 2 es el primero).
 // `ease` es mods.levelEase (meta y mejoras que facilitan subir).
-// Los primeros niveles van más espaciados (EARLY); desde el 7 sigue 180×1.62^(n-2).
-const EARLY = { 2: 260, 3: 520, 4: 850, 5: 1250, 6: 1650 };
+// Los primeros niveles van a mano (EARLY); desde el 7 sigue 180×1.62^(n-2).
+const EARLY = { 2: 120, 3: 300, 4: 560, 5: 900, 6: 1400 };
 export function levelThreshold(level, ease = 1) {
   if (level <= 1) return 0;
   const base = EARLY[level] ?? 180 * Math.pow(1.62, level - 2);

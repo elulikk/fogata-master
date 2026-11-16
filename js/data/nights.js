@@ -21,7 +21,7 @@ const DEFICIT_RAMP = 60;   // tras 60 s seguidos bajo la meta el frío sube más
 const GUST_EVERY = [80, 150]; // noches 3+: ráfaga helada cada tanto
 const GUST_LEN = 20;       // s que dura la ráfaga
 const GUST_BOOST = 1.15;   // durante la ráfaga la meta pide 15% más
-const GOOD_RATIO = 0.6;    // fracción de la noche en meta para ganar carta gratis
+const GOOD_RATIO = 0.6;    // fracción de la noche en meta para ganar un punto de habilidad
 
 export function freshNight() {
   return {
@@ -34,7 +34,6 @@ export function freshNight() {
     inGoal: 0,      // segundos de esta noche con la meta cumplida
     rateSum: 0,     // calor/s acumulado durante la noche (para el margen sobre la meta)
     startTotal: 0,  // calor total al empezar la noche
-    freeCard: false, // carta gratis pendiente por mostrar
     deficitT: 0,    // segundos seguidos bajo la meta (acelera el frío)
     gustIn: 0,      // segundos hasta la próxima ráfaga helada
     gustT: 0,       // segundos que le quedan a la ráfaga actual
@@ -126,7 +125,7 @@ export function stepNight(night, dt, rate, mods) {
     if (failed || night.t >= NIGHT) {
       const ratio = night.inGoal / Math.max(1, night.t);
       const margin = Math.max(0, (night.rateSum / Math.max(1, night.t)) / nightGoal(night.n, mods) - 1);
-      events.push({ type: 'dawn', success: !failed, failed, ratio, margin, cardFree: !failed && ratio >= GOOD_RATIO });
+      events.push({ type: 'dawn', success: !failed, failed, ratio, margin, point: !failed && ratio >= GOOD_RATIO });
       night.phase = 'day';
       night.t = 0;
       night.coldLvl = 0;

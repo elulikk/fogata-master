@@ -1,4 +1,5 @@
-// Lugares de la fogata: cada tipi tiene dos patas por anillo, de adentro hacia afuera ramas, leña y troncos.
+// Lugares de la fogata: patas apoyadas en anillos, de adentro hacia afuera ramas, leña y troncos.
+// Cuántas entran de cada corte lo dice el escalón de la fogata (data/sizes.js) más las habilidades de "Lugar para…".
 // Son posiciones fijas, sin física: la leña se encaja en un lugar de su tamaño y ahí se queda.
 // El lugar es solo cuánta leña de cada tamaño entra: el calor se comparte en todo el pozo (ver Fire.update).
 // Las piezas se pueden pisar entre sí sin que pase nada; se dibujan de afuera hacia adentro.
@@ -9,13 +10,13 @@ import { CUTS, CUT_ORDER } from '../data/woods.js';
 // se corren las patas de más (los troncos hacia adentro, para no salirse de las piedras).
 const RINGS = [{ foot: 22, cross: 3, step: 8 }, { foot: 52, cross: 5, step: 8 }, { foot: 82, cross: 16, step: -9 }];
 const TIPI_HALF = 90; // medio ancho que ocupa un tipi
-export const BASE_PER_RING = 2; // patas por anillo de cada tipi, sin cartas
 
 export const TIER_TINT = [0x4fb4ec, 0xffdc4a, 0xf04a3a]; // azul ramas, amarillo leña, rojo troncos
 
 // Los lugares de un pozo: `tipis` tipis repartidos a lo ancho (en pozos angostos se pisan, no molesta).
-// `extra[tier]`: patas de más por tipi en ese anillo (las dan las cartas de "Hueco"), una a cada lado por turno.
-export function buildSlots(cx, half, tipis, groundY, extra = []) {
+// `counts[tier]`: cuántas piezas de ese corte entran en todo el pozo. Se reparten de a una por tipi y,
+// dentro de cada tipi, una a cada lado por turno.
+export function buildSlots(cx, half, tipis, groundY, counts = []) {
   const room = Math.max(0, half - TIPI_HALF);
   const out = [];
   for (let t = 0; t < tipis; t++) {
@@ -23,9 +24,10 @@ export function buildSlots(cx, half, tipis, groundY, extra = []) {
     CUT_ORDER.forEach((cut, tier) => {
       const { length: len, thickness: th } = CUTS[cut];
       const ring = RINGS[tier];
-      for (let i = 0, n = BASE_PER_RING + (extra[tier] || 0); i < n; i++) {
-        const side = i % 2 ? 1 : -1;
-        const foot = ring.foot + ring.step * (i >> 1);
+      const total = counts[tier] || 0;
+      for (let i = 0, n = Math.floor(total / tipis) + (t < total % tipis ? 1 : 0); i < n; i++) {
+        const side = (i + t) % 2 ? 1 : -1;
+        const foot = Math.max(10, ring.foot + ring.step * (i >> 1));
         const a = Math.acos(Math.min(0.95, (foot + ring.cross) / len));
         const dx = -side * Math.cos(a);
         const dy = -Math.sin(a);

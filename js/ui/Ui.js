@@ -1,11 +1,13 @@
-// Interfaz en HTML encima del canvas: calor, nivel, pronóstico, noche, avisos,
-// botones de acción, tienda/construcción/cenizas, cartas de nivel, resumen y ajustes.
+// Interfaz en HTML encima del canvas: calor, nivel, pronóstico, noche, avisos, herramientas,
+// botones de acción y sus ventanas (Pyroshop, construir, habilidades, cenizas), resumen y ajustes.
+// Cualquier ventana abierta pausa el juego (ver syncPause).
 // Los datos nuevos (levelCur, levelNeed, rateInfo, night, need, effect, rarity)
 // son opcionales: si faltan, la interfaz degrada sin errores.
 
 import { WEATHER_INFO } from '../objects/Weather.js';
 import { SIZES } from '../data/sizes.js';
 import { TOOLS } from '../data/tools.js';
+import { DEV_ON } from '../data/dev.js';
 import { HEAT } from '../utils/heat.js';
 import { MainMenu } from './MainMenu.js';
 
@@ -20,36 +22,23 @@ export function fmt(n) {
 
 const num = (x) => typeof x === 'number' && Number.isFinite(x);
 
-const RARITY = {
-  comun: 'Común',
-  rara: 'Rara',
-  epica: 'Épica',
-};
-
-// Pestañas del panel: botón que las abre y título.
+// Ventanas del panel: botón que las abre, tecla y título.
+// Para sumar una ventana: una entrada acá, su botón en index.html y, si no es una lista de ítems, su `render`.
 const TABS = {
-  tienda: { btn: 'btn-shop', title: '🎒 Mercachifle', empty: 'Todavía no hay nada. Seguí juntando calor.' },
-  construir: { btn: 'btn-build', title: '🔨 Construir', empty: 'Todavía no hay nada. Seguí juntando calor.' },
-  cenizas: { btn: 'btn-ashes', title: '🪦 Cenizas', empty: 'Sobreviví a una noche para ganar cenizas.' },
+  tienda: { btn: 'btn-shop', key: 's', title: '🛒 Pyroshop', empty: 'Todavía no hay nada. Seguí juntando calor.' },
+  construir: { btn: 'btn-build', key: 'c', title: '🔨 Construir', empty: 'Todavía no hay nada. Seguí juntando calor.' },
+  arbol: { btn: 'btn-tree', key: 'h', title: '🌳 Habilidades', render: 'renderTree', wide: true },
+  cenizas: { btn: 'btn-ashes', key: 'a', title: '🪦 Cenizas', empty: 'Sobreviví a una noche para ganar cenizas.' },
+  dev: { btn: 'btn-dev', key: 'F12', title: '🛠 Dev', render: 'renderDev' },
 };
 
 const MIN_SCALE = 0.72;
 const WORLD_W = 1280; // tamaño del mundo de juego (para pasar coordenadas del mundo a la UI)
 const STRUCT_NAMES = { tipi: 'Armada' };
 
-// Efectos de un ítem: usa effects[] / effect; para "agrandar" deduce tipis, aire y calor de sizes.js.
+// Efectos de un ítem: la lista `effects` si viene, o su `effect` suelto.
 function effectsOf(i) {
   if (Array.isArray(i.effects) && i.effects.length) return i.effects;
-  if (String(i.id).startsWith('agrandar_') && !i.maxed && SIZES[i.level + 1]) {
-    const a = SIZES[i.level];
-    const b = SIZES[i.level + 1];
-    return [
-      { label: 'Tipis', before: `${a.tipis}`, after: `${b.tipis}` },
-      { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
-      { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
-      { label: 'Consumo de leña', before: `×${a.burn}`, after: `×${b.burn}` },
-    ];
-  }
   return i.effect && i.effect.label ? [i.effect] : [];
 }
 
@@ -65,17 +54,6 @@ function sizeBarHtml(i) {
 const CONFIRM_MS = 3000;
 const TOAST_PRIO = { bad: 2, unlock: 1 };
 
-// Tutorial contextual: cada paso avanza al lograr la acción (no por tiempo). Si un paso no se
-// cumple en `ttl` segundos se da por visto para no insistir. `minSize`: el paso espera ese tamaño de pozo.
-const TUT_KEY = 'fogata-ui-tut';
-const TUT_STEPS = [
-  { id: 'drag', text: 'Arrastrá una leña hasta el fuego', on: { grab: 'Soltala sobre un lugar marcado' }, done: 'snap', ttl: 45 },
-  { id: 'tipi', text: 'Las ramas prenden con nada; los troncos piden un fuego fuerte', done: 'structure:tipi', ttl: 60 },
-];
-// Avisos urgentes de la escena: ganan sobre el tutorial.
-// Incluye "prender": si el fuego no prende solo, esa ayuda (que manda la escena) va primero.
-const URGENT = /apag[óo]|fósforo|prend|brasas|comprar|lleno/i;
-
 // Efecto "antes → después": si no hay valor previo ('—' o vacío), se muestra solo el "después".
 const sinAntes = (v) => v == null || ['', '—', '-'].includes(String(v).trim());
 const efectoTexto = (e) => (sinAntes(e.before) ? `${e.after}` : `${e.before} → ${e.after}`);
@@ -83,7 +61,6 @@ const efectoTexto = (e) => (sinAntes(e.before) ? `${e.after}` : `${e.before} →
 function priceHtml(p) {
   const parts = [];
   if (p.calor) parts.push(`<span class="c c-calor">${HEAT} ${fmt(p.calor)}</span>`);
-  if (p.tronco) parts.push(`<span class="c c-tronco">🪵 ${p.tronco}</span>`);
   if (p.ceniza) parts.push(`<span class="c c-ceniza">🪦 ${fmt(p.ceniza)}</span>`);
   return parts.join(' ') || 'Gratis';
 }
@@ -97,9 +74,7 @@ export class Ui {
     this.metaSig = '';
     this.shown = new Set();
     this.lastCalor = 0;
-    this.barHold = false;
-    this.cardsLocked = false;
-    this.lockTimer = 0;
+    this.pausedByUi = null;
     this.confirmTimer = 0;
     this.prestigeTimer = 0;
     this.toastQ = [];
@@ -111,12 +86,6 @@ export class Ui {
     this.rotHintUntil = 0;
     this.dragging = false;
     this.pitEls = [];
-    this.tutOn = false;
-    this.tutDone = this.readTut();
-    this.tutStep = null;
-    this.tutT0 = 0;
-    this.tutSize = 0;
-    this.tutKind = '';
     this.lastHint = '';
     this.goalSig = '';
     this.goalAt = 0;
@@ -136,7 +105,7 @@ export class Ui {
     this.setupKeys();
     this.setupTouchMode();
     // Avisos en cola: salen de a uno cuando no hay ningún modal abierto.
-    setInterval(() => { this.pump(); if (!this.modalOpen) this.tutTick(); }, 200);
+    setInterval(() => this.pump(), 200);
     // Pantalla de título al abrir el juego (la pausa se aplica cuando la escena hace bind).
     this.mm.open('title');
   }
@@ -177,7 +146,9 @@ export class Ui {
       if (b) this.handlers.selectTool?.(b.dataset.tool);
     });
     for (const tab of Object.keys(TABS)) $(TABS[tab].btn).addEventListener('click', () => this.togglePanel(tab));
+    $('btn-dev').classList.toggle('hidden', !DEV_ON);
     $('panel-close').addEventListener('click', () => this.closePanel());
+    $('veil').addEventListener('click', () => this.closePanel());
     $('calor-rate').addEventListener('click', () => $('rate-pop').classList.toggle('open'));
     $('calor-rate').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('rate-pop').classList.toggle('open'); } });
     $('btn-mute').addEventListener('click', () => this.toggleMute());
@@ -186,10 +157,28 @@ export class Ui {
     // Mismo flujo que "Partida nueva" del título: confirmación + copia previa.
     $('btn-reset').addEventListener('click', () => this.mm.askNew());
     $('panel-list').addEventListener('click', (e) => {
+      const node = e.target.closest('[data-learn]');
+      if (node) {
+        this.showSkill(node.dataset.learn);
+        if (this.handlers.learn?.(node.dataset.learn)) this.renderPanel();
+        return;
+      }
+      const dev = e.target.closest('button[data-dev]');
+      if (dev) {
+        this.handlers.dev?.(dev.dataset.dev);
+        dev.classList.remove('done');
+        void dev.offsetWidth;
+        dev.classList.add('done');
+        return;
+      }
       const btn = e.target.closest('button[data-buy]');
       if (!btn || btn.disabled) return;
       if (this.panelTab === 'cenizas') this.handlers.buyAsh?.(btn.dataset.buy);
       else this.handlers.buy?.(btn.dataset.buy);
+    });
+    $('panel-list').addEventListener('pointerover', (e) => {
+      const node = e.target.closest('[data-learn]');
+      if (node) this.showSkill(node.dataset.learn);
     });
     $('panel-meta').addEventListener('click', (e) => {
       const b = e.target.closest('#btn-prestige');
@@ -206,14 +195,10 @@ export class Ui {
           const cur = $('btn-prestige');
           if (cur) {
             delete cur.dataset.confirm;
-            cur.textContent = cur.dataset.label || 'Prestigio';
+            cur.textContent = cur.dataset.label || 'Renacer';
           }
         }, CONFIRM_MS);
       }
-    });
-    $('cards').addEventListener('click', (e) => {
-      const card = e.target.closest('.card');
-      if (card) this.pickCard(card.dataset.card);
     });
     $('summary-ok').addEventListener('click', () => this.hideSummary());
     $('event-choices').addEventListener('click', (e) => {
@@ -243,14 +228,13 @@ export class Ui {
     });
   }
 
-  // Atajos de teclado. Respetan el bloqueo: con cartas abiertas solo valen 1/2/3.
+  // Atajos de teclado. Con un diálogo o un resumen abierto, solo valen sus teclas.
   setupKeys() {
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
       if (t && (t.tagName === 'TEXTAREA' || (t.tagName === 'INPUT' && t.type === 'text'))) return;
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
-      const cardsOpen = !$('modal').classList.contains('hidden');
       const summaryOpen = !$('summary').classList.contains('hidden');
       const menuOpen = !$('menu').classList.contains('hidden');
 
@@ -259,13 +243,6 @@ export class Ui {
         const btns = $('event-choices').children;
         const i = key === 'Enter' ? 0 : Number(key) - 1;
         if (btns[i]) btns[i].click();
-        return;
-      }
-      if (cardsOpen) {
-        if (key >= '1' && key <= '3' && !e.repeat) {
-          const card = $('cards').children[Number(key) - 1];
-          if (card) this.pickCard(card.dataset.card);
-        }
         return;
       }
       if (summaryOpen) {
@@ -284,14 +261,12 @@ export class Ui {
         return;
       }
       if (menuOpen || e.repeat) return;
-      const open = (tab) => {
+      const tab = Object.keys(TABS).find((k) => TABS[k].key === key);
+      if (tab) {
+        if (key.length > 1) e.preventDefault();
         if (!$(TABS[tab].btn).classList.contains('hidden')) this.togglePanel(tab);
-      };
-      if (key === 's') open('tienda');
-      else if (key === 'c') open('construir');
-      else if (key === 'a') open('cenizas');
-      else if (key === 'm') $('btn-mute').click();
-      else if (TOOLS.some((t) => t.key === key)) this.handlers.selectTool?.(TOOLS.find((t) => t.key === key).id);
+      } else if (key === 'm') $('btn-mute').click();
+      else if (!this.panelTab && TOOLS.some((t) => t.key === key)) this.handlers.selectTool?.(TOOLS.find((t) => t.key === key).id);
     });
   }
 
@@ -305,82 +280,6 @@ export class Ui {
   // La escena avisa si hay una leña agarrada.
   setDragging(on) {
     this.dragging = !!on;
-  }
-
-  // --- Tutorial contextual ---
-
-  readTut() {
-    try { return new Set(JSON.parse(localStorage.getItem(TUT_KEY) || '[]')); } catch (err) { return new Set(); }
-  }
-
-  saveTut() {
-    try { localStorage.setItem(TUT_KEY, JSON.stringify([...this.tutDone])); } catch (err) { /* sin storage */ }
-  }
-
-  // Primer paso pendiente cuyo requisito (tamaño de pozo) ya se cumple.
-  nextTutStep() {
-    return TUT_STEPS.find((s) => !this.tutDone.has(s.id) && (!s.minSize || this.tutSize >= s.minSize)) || null;
-  }
-
-  get tutActive() { return this.tutOn && !!this.tutStep; }
-
-  // Eventos de la escena: 'load' {progress, size} (arranca o descarta), 'restart', 'grab', 'snap',
-  // 'ignite', 'structure:tipi', 'pit:grow' {size}.
-  tutorial(event, data = {}) {
-    if (event === 'restart') {
-      this.tutDone = new Set();
-      this.saveTut();
-      this.tutOn = true;
-    } else if (event === 'load') {
-      this.tutSize = data.size | 0;
-      if (data.progress) TUT_STEPS.forEach((s) => this.tutDone.add(s.id));
-      else this.tutOn = true;
-      if (data.progress) this.saveTut();
-    } else if (event === 'pit:grow') {
-      this.tutSize = Math.max(this.tutSize, data.size | 0);
-    } else if (this.tutOn) {
-      const cur = this.tutStep;
-      if (cur && cur.on && cur.on[event] && event !== cur.done) {
-        this.tutKind = event;
-      } else {
-        // Un evento cumple su paso y todos los anteriores.
-        const i = TUT_STEPS.findIndex((s) => s.done === event);
-        if (i >= 0) {
-          TUT_STEPS.slice(0, i + 1).forEach((s) => this.tutDone.add(s.id));
-          this.tutKind = '';
-          this.saveTut();
-        }
-      }
-    }
-    this.tutRefresh();
-  }
-
-  // Recalcula el paso actual y su texto/resalte; reaplica la pista vigente.
-  tutRefresh() {
-    const step = this.tutOn ? this.nextTutStep() : null;
-    if (step !== this.tutStep) {
-      this.tutStep = step;
-      this.tutT0 = performance.now();
-      this.tutKind = '';
-    }
-    this.setHint(this.lastHint);
-  }
-
-  tutText() {
-    const s = this.tutStep;
-    if (!s) return '';
-    if (this.tutKind && s.on && s.on[this.tutKind]) return s.on[this.tutKind];
-    return this.touchMode && s.touch ? s.touch : s.text;
-  }
-
-  // Vence el tiempo de un paso que el jugador no cumple: se da por visto.
-  tutTick() {
-    const s = this.tutStep;
-    if (s && performance.now() - this.tutT0 > s.ttl * 1000) {
-      this.tutDone.add(s.id);
-      this.saveTut();
-      this.tutRefresh();
-    }
   }
 
   // Pulso sobre un elemento (id) para decir dónde mirar; guide(null) lo quita.
@@ -416,7 +315,8 @@ export class Ui {
       set('.t-name', p.sizeName || (SIZES[p.size] && SIZES[p.size].name) || '');
       set('.t-num', hasLoad ? `${n1(p.load)}/${n1(p.cap)} 🪵` : '');
       const st = s && STRUCT_NAMES[s.type] && s.quality > 0.05 ? `${STRUCT_NAMES[s.type]} ${Math.round(s.quality * 100)}%` : '';
-      set('.t-st', st);
+      set('.t-st', p.choked ? '🌫️ ahogada en ceniza' : st);
+      el.classList.toggle('choked', !!p.choked);
       // bonus = fracción de calor extra de la estructura (0.22 → "+22%"); acepta también un texto.
       set('.t-bonus', typeof p.bonus === 'string' ? p.bonus : num(p.bonus) && p.bonus > 0.004 ? `+${Math.round(p.bonus * 100)}%` : '');
       const bar = el.querySelector('.t-bar');
@@ -451,7 +351,16 @@ export class Ui {
   bind(handlers) {
     this.handlers = handlers;
     // Si el título ya estaba abierto antes de que existiera la escena, pausa ahora.
-    if (this.mm.isOpen) handlers.pause?.(true);
+    this.pausedByUi = null;
+    this.syncPause();
+  }
+
+  // Cualquier ventana abierta pausa el juego: el fuego no se consume mientras comprás, elegís habilidades o estás en el menú.
+  syncPause() {
+    const on = !!this.panelTab || this.modalOpen;
+    if (on === this.pausedByUi) return;
+    this.pausedByUi = on;
+    this.handlers.pause?.(on);
   }
 
   // --- Ajustes ---
@@ -562,9 +471,10 @@ export class Ui {
 
   // Muestra avisos pendientes: nunca más de 2 toasts a la vez ni con un modal abierto.
   pump() {
+    this.syncPause();
     const achv = $('achv');
     // Con un modal abierto, la zona de arriba (pronóstico, noche, avisos) se oculta por CSS.
-    const open = this.modalOpen;
+    const open = this.modalOpen || !!this.panelTab;
     this.root.classList.toggle('modal-open', open);
     if (open) {
       // Con un modal abierto, los toasts en pantalla se retiran y vuelven a la cola (salen al cerrarlo).
@@ -682,15 +592,13 @@ export class Ui {
       </div>`).join('');
   }
 
-  // Pista de abajo. Los avisos urgentes (se apagó, se ahoga…) ganan; si no, manda el paso del tutorial.
-  // `urgent` lo puede decir la escena; por defecto se deduce del texto.
-  setHint(text, force = false, urgent = URGENT.test(text || '')) {
+  // Pista de abajo: lo que conviene hacer ahora (la arma la escena, tutorial incluido).
+  setHint(text, force = false) {
     const el = $('hint');
     this.lastHint = force ? this.lastHint : text;
     if (!force && performance.now() < this.rotHintUntil) return;
-    if (!force && this.tutStep && !(text && urgent)) text = this.tutText();
     // Pulso sobre la herramienta elegida cuando la pista habla de prender.
-    this.guide(/fósforo|prend/i.test(text || '') ? `tool-${this.activeTool || TOOLS[0].id}` : null);
+    this.guide(/fósforo|pedernal|prend/i.test(text || '') ? `tool-${this.activeTool || TOOLS[0].id}` : /rastrillo/i.test(text || '') ? 'tool-rastrillo' : null);
     if (el.dataset.text === text) return;
     el.dataset.text = text;
     el.style.opacity = 0;
@@ -724,6 +632,14 @@ export class Ui {
     }
 
     if (v.levelOn) this.updateLevel(v);
+    // Puntos de habilidad sin gastar: se ven en el nivel y en el botón del árbol.
+    const pts = v.points | 0;
+    if (pts !== this.points) {
+      this.points = pts;
+      const text = pts > 0 ? `● ${pts}` : '';
+      $('lvl-points').textContent = pts > 0 ? `● ${pts} ${pts === 1 ? 'punto' : 'puntos'}` : '';
+      $('tree-badge').textContent = text;
+    }
 
     this.updateTools(v);
     this.updateForecast(v);
@@ -736,8 +652,10 @@ export class Ui {
   // Barra de herramientas: la elegida resaltada y cuánto queda de las que se gastan.
   updateTools(v) {
     this.activeTool = v.tool;
+    const have = v.tools || TOOLS.map((t) => t.id);
     for (const t of TOOLS) {
       const el = $(`tool-${t.id}`);
+      el.classList.toggle('hidden', !have.includes(t.id));
       el.classList.toggle('on', t.id === v.tool);
       el.setAttribute('aria-pressed', t.id === v.tool);
       if (!t.res) continue;
@@ -794,10 +712,8 @@ export class Ui {
   updateLevel(v) {
     const lv = this.lv;
     const hasNums = num(v.levelCur) && num(v.levelNeed);
-    if (!this.barHold) {
-      const p = num(v.levelProgress) ? v.levelProgress : hasNums && v.levelNeed > 0 ? v.levelCur / v.levelNeed : 0;
-      $('lvl-fill').style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`;
-    }
+    const p = num(v.levelProgress) ? v.levelProgress : hasNums && v.levelNeed > 0 ? v.levelCur / v.levelNeed : 0;
+    $('lvl-fill').style.width = `${Math.round(Math.max(0, Math.min(1, p)) * 100)}%`;
     lv.need = hasNums ? v.levelNeed : 0;
     if (!hasNums) {
       lv.level = v.level;
@@ -831,12 +747,6 @@ export class Ui {
   renderLevelText() {
     const lv = this.lv;
     $('lvl-text').textContent = `Nivel ${lv.level} · ${fmt(lv.shown)}/${fmt(lv.need)}`;
-  }
-
-  // Barra de nivel al 100% hasta que se elija carta (la usa la secuencia de subida).
-  fillLevelBar() {
-    this.barHold = true;
-    $('lvl-fill').style.width = '100%';
   }
 
   updateForecast(v) {
@@ -909,7 +819,7 @@ export class Ui {
     });
   }
 
-  // --- Panel (tienda / construir / cenizas) ---
+  // --- Ventanas (Pyroshop / construir / habilidades / cenizas) ---
 
   togglePanel(tab) {
     if (this.panelTab === tab) {
@@ -925,8 +835,13 @@ export class Ui {
     $(t.btn).classList.remove('new');
     $(t.btn).setAttribute('aria-pressed', 'true');
     $('panel-title').textContent = t.title;
+    $('panel').classList.toggle('wide', !!t.wide);
+    $('panel-list').className = `tab-${tab}`;
+    $('panel-list').innerHTML = '';
+    $('veil').classList.remove('hidden');
     this.reveal('panel', true);
     this.renderPanel();
+    this.pump();
   }
 
   closePanel() {
@@ -937,6 +852,8 @@ export class Ui {
     this.panelTab = null;
     clearTimeout(this.prestigeTimer);
     $('panel').classList.add('hidden');
+    $('veil').classList.add('hidden');
+    this.pump();
   }
 
   // Faltante de un ítem: usa i.need si viene; si no, deduce el calor con el último valor conocido.
@@ -964,20 +881,22 @@ export class Ui {
     box.classList.remove('hidden');
     box.innerHTML = `
       <div class="meta-line">🪦 Cenizas: <b>${fmt(m.ceniza || 0)}</b> · 🌄 Amaneceres de esta partida: <b>${m.dawns || 0}</b></div>
-      <div class="meta-sub">${m.canPrestige ? 'Podés reiniciar la partida y quedarte con las mejoras de cenizas.' : 'Sobreviví al menos un amanecer en esta partida para poder prestigiar.'}</div>
-      ${gain ? `<div class="meta-gain">Prestigio ahora: <b>${gain}</b></div>` : ''}
-      <button id="btn-prestige" class="act danger" data-label="Prestigio" ${m.canPrestige ? '' : 'disabled'}>Prestigio</button>`;
+      <div class="meta-sub">${m.canPrestige ? 'Renacer reinicia la partida y conserva la ceniza y sus mejoras.' : 'Sobreviví al menos un amanecer en esta partida para poder renacer.'}</div>
+      ${gain ? `<div class="meta-gain">Renacer ahora: <b>${gain}</b></div>` : ''}
+      <button id="btn-prestige" class="act danger" data-label="Renacer" ${m.canPrestige ? '' : 'disabled'}>Renacer</button>`;
   }
 
   renderPanel() {
     this.renderMeta();
+    const custom = TABS[this.panelTab].render;
+    if (custom) return this[custom]();
     let items;
     if (this.panelTab === 'cenizas') {
       items = (this.handlers.ashItems?.() || []).map((i) => ({ ...i, price: { ceniza: i.cost } }));
     } else {
       items = this.handlers.items?.(this.panelTab) || [];
     }
-    const sig = items.map((i) => `${i.id}:${i.level}:${i.affordable}:${i.price.calor}:${i.price.tronco}:${i.price.ceniza}:${i.maxed}:${i.blocked || ''}`).join('|');
+    const sig = items.map((i) => `${i.id}:${i.level}:${i.affordable}:${i.price.calor}:${i.price.ceniza}:${i.maxed}:${i.blocked || ''}:${i.stock ?? ''}`).join('|');
     if (sig !== this.panelSig) {
       this.panelSig = sig;
       const scroll = $('panel-list').scrollTop;
@@ -986,7 +905,7 @@ export class Ui {
         <div class="item ${i.maxed ? 'maxed' : ''}" data-id="${i.id}">
           <div class="ico">${i.icon}</div>
           <div>
-            <div class="name">${i.name} ${i.max > 1 && i.max < 99 ? `<span class="lvl">${i.level}/${i.max}</span>` : ''}</div>
+            <div class="name">${i.name} ${i.max > 1 && i.max < 99 ? `<span class="lvl">${i.level}/${i.max}</span>` : ''}${num(i.stock) ? `<span class="lvl">tenés ${i.stock}</span>` : ''}</div>
             <div class="desc">${i.desc}</div>
             ${sizeBarHtml(i)}
             <div class="eff hidden"></div>
@@ -1020,7 +939,6 @@ export class Ui {
       const need = i.maxed ? {} : this.needOf(i);
       const short = [];
       if (need.calor > 0) short.push(`${fmt(need.calor)} ${HEAT}`);
-      if (need.tronco > 0) short.push(`${need.tronco} 🪵`);
       if (need.ceniza > 0) short.push(`${fmt(need.ceniza)} 🪦`);
       const nd = row.querySelector('.need');
       const text = short.length ? `faltan ${short.join(' / ')}` : '';
@@ -1030,72 +948,82 @@ export class Ui {
       }
       nd.classList.toggle('hidden', !text);
       row.querySelector('.c-calor')?.classList.toggle('short', need.calor > 0);
-      row.querySelector('.c-tronco')?.classList.toggle('short', need.tronco > 0);
       row.querySelector('.c-ceniza')?.classList.toggle('short', need.ceniza > 0);
     }
   }
 
-  // --- Cartas ---
+  // --- Árbol de habilidades ---
 
-  // cards: [{ id, icon, name, desc, max, rarity?, effect?: { label, before, after } }]
-  showCards(cards, levels = {}, opts = {}) {
-    // Las cartas no se abren encima de la tienda o construir.
-    this.closePanel();
-    $('cards').innerHTML = cards.map((c, idx) => {
-      const rarity = RARITY[c.rarity] ? c.rarity : 'comun';
-      const delay = num(c.delay) ? c.delay : idx * 80 + (rarity === 'epica' ? 250 : 0);
-      const e = c.effect;
-      return `
-      <div class="card interactive ${rarity}" data-card="${c.id}" data-delay="${delay}" style="animation-delay:${this.reduceMotion ? 0 : delay}ms" role="button" tabindex="0">
-        <div class="c-rar">${RARITY[rarity]}</div>
-        <div class="c-ico">${c.icon}</div>
-        <div class="c-name">${c.name}</div>
-        ${c.max < 99 ? `<div class="c-lvl">Nivel ${(levels[c.id] || 0) + 1}/${c.max}</div>` : ''}
-        <div class="c-desc">${c.desc}</div>
-        ${e && e.label ? `<div class="c-eff"><span class="e-lbl">${e.label}</span><span class="e-val">${sinAntes(e.before) ? `<b>${e.after}</b>` : `<s>${e.before}</s> → <b>${e.after}</b>`}</span></div>` : ''}
-        <div class="c-key">${idx + 1}</div>
-      </div>`;
-    }).join('');
-    this.lockCards(num(opts.lockMs) ? opts.lockMs : 0);
-    this.reveal('modal', true);
-    this.pump(); // retira ya un logro que estuviera en pantalla
+  // Una columna por rama; cada nodo muestra su nivel y se aprende con un clic si hay puntos y está abierto.
+  renderTree() {
+    const t = this.handlers.tree?.();
+    if (!t) return;
+    this.treeNodes = {};
+    const sig = JSON.stringify(t);
+    if (sig === this.panelSig) return;
+    this.panelSig = sig;
+    const node = (n) => {
+      this.treeNodes[n.id] = n;
+      const state = n.level >= n.max ? 'maxed' : n.can ? 'can' : !n.open ? 'locked' : '';
+      return `<button class="skill ${state} ${n.level > 0 ? 'owned' : ''}" data-learn="${n.id}" style="grid-row:${n.row + 1};grid-column:${n.col + 1}" aria-label="${n.name}, nivel ${n.level} de ${n.max}">
+          <span class="s-ico">${n.icon}</span>
+          <span class="s-name">${n.name}</span>
+          <span class="s-lvl">${n.level}/${n.max}</span>
+          ${n.level < n.max ? `<span class="s-cost">● ${n.cost}</span>` : '<span class="s-cost">✔</span>'}
+        </button>`;
+    };
+    const cols = (b) => 1 + Math.max(...b.nodes.map((n) => n.col));
+    $('panel-list').innerHTML = `
+      <div class="tree-points ${t.points > 0 ? 'has' : ''}">${t.points > 0 ? `● ${t.points} ${t.points === 1 ? 'punto' : 'puntos'} para gastar` : 'Sin puntos: cada nivel te da uno, y una buena noche también.'}</div>
+      <div class="tree">${t.branches.map((b) => `
+        <section class="branch" style="flex:${cols(b)}">
+          <h3>${b.icon} ${b.name}</h3>
+          <div class="nodes" style="grid-template-columns:repeat(${cols(b)}, 1fr)">${b.nodes.map(node).join('')}</div>
+        </section>`).join('')}
+      </div>
+      <div id="tree-detail"></div>`;
+    this.showSkill(this.skillShown);
   }
 
-  // Bloquea la elección unos ms para que un clic sin querer no la salte.
-  lockCards(ms) {
-    clearTimeout(this.lockTimer);
-    if (!(ms > 0)) {
-      this.cardsLocked = false;
-      $('cards').classList.remove('locked');
+  // Ficha de la habilidad bajo el cursor (o la última tocada), al pie del árbol.
+  showSkill(id) {
+    const n = this.treeNodes?.[id];
+    const box = $('tree-detail');
+    if (!box) return;
+    this.skillShown = id;
+    if (!n) {
+      box.innerHTML = '<span class="d-hint">Pasá el cursor por una habilidad para ver qué hace. Clic para aprenderla.</span>';
       return;
     }
-    this.cardsLocked = true;
-    $('cards').classList.add('locked');
-    this.lockTimer = setTimeout(() => {
-      this.cardsLocked = false;
-      $('cards').classList.remove('locked');
-    }, ms);
+    const status = n.level >= n.max ? 'Al máximo.' : !n.open ? `🔒 Pide ${n.needs.join(' y ')}.` : n.can ? `Clic para aprender: cuesta ● ${n.cost}.` : `Cuesta ● ${n.cost}: te faltan puntos.`;
+    box.innerHTML = `<b>${n.icon} ${n.name}</b> <span class="d-lvl">${n.level}/${n.max}</span><br>${n.desc} <span class="d-st">${status}</span>`;
   }
 
-  pickCard(id) {
-    if (this.cardsLocked || !id) return;
-    this.handlers.pickCard?.(id);
+  // --- Menú de desarrollo (data/dev.js) ---
+
+  renderDev() {
+    const list = this.handlers.devActions?.() || [];
+    if (this.panelSig === 'dev') return;
+    this.panelSig = 'dev';
+    let html = '<div class="dev-note">Solo para desarrollo: no va a estar en el juego final.</div>';
+    let open = false;
+    for (const a of list) {
+      if (a.section) {
+        html += `${open ? '</div>' : ''}<h3>${a.section}</h3><div class="dev-grid">`;
+        open = true;
+      } else {
+        html += `<button class="act small-btn" data-dev="${a.id}">${a.icon} ${a.name}</button>`;
+      }
+    }
+    $('panel-list').innerHTML = `${html}${open ? '</div>' : ''}`;
   }
 
-  hideCards() {
-    clearTimeout(this.lockTimer);
-    this.cardsLocked = false;
-    this.barHold = false;
-    $('cards').classList.remove('locked');
-    $('modal').classList.add('hidden');
-  }
-
-  // --- Resumen (noche / prestigio) ---
+  // --- Resumen (noche / renacer) ---
 
   // data: { title, sub?, success?, lines: [{ icon?, label, value }] | [[label, value]], button?, onClose? }
   showSummary(data = {}) {
     const box = $('summary');
-    // El resumen tampoco se abre encima del panel de tienda o construir.
+    // El resumen no se abre encima de otra ventana.
     this.closePanel();
     data = this.describeSummary(data);
     this.summaryData = data;
@@ -1122,7 +1050,7 @@ export class Ui {
       if (num(d.goal)) lines.push(['Meta', `${d.goal.toFixed(1)} /s`, '🎯']);
       if (d.success && num(d.margin) && d.margin > 0.05) lines.push(['Margen sobre la meta', `+${Math.round(d.margin * 100)} %`, '📈']);
       if (d.success) lines.push(['Cenizas ganadas', `+${d.ash}`, '🪦'], ['Cenizas disponibles', fmt(d.ashAvail ?? d.ashTotal ?? 0), '🪦'], ['Cenizas en total', fmt(d.ashTotal || 0), '🪦']);
-      if (d.cardFree) lines.push(['Premio del alba', 'elegís 1 carta gratis', '🃏']);
+      if (d.point) lines.push(['Premio por una buena noche', '+1 punto de habilidad', '●']);
       return {
         ...d,
         title: d.success ? `¡Amaneció! Noche ${d.n} superada` : `El frío ganó la noche ${d.n}`,
@@ -1143,7 +1071,7 @@ export class Ui {
           ['Cenizas en total', fmt(d.ashTotal || 0), '🪦'],
           ['Calor de la partida', fmt(d.runCalor || 0), HEAT],
           ['Amaneceres', d.dawns || 0, '🌄'],
-          ['Prestigios', d.prestiges || 0, '♻️'],
+          ['Veces que renaciste', d.prestiges || 0, '♻️'],
         ],
         button: 'A encender',
       };
@@ -1158,7 +1086,7 @@ export class Ui {
     $('summary').classList.add('hidden');
     const d = this.summaryData;
     this.summaryData = null;
-    this.handlers.pause?.(false);
+    this.pump();
     this.handlers.summaryClose?.(d);
     d?.onClose?.();
   }
@@ -1183,13 +1111,13 @@ export class Ui {
 
   // Vuelve la interfaz al estado del arranque (partida nueva).
   resetView() {
-    for (const id of ['hud-calor', 'level', 'forecast', 'night', 'btn-shop', 'btn-build', 'btn-ashes', 'panel', 'modal', 'summary']) {
+    for (const id of ['hud-calor', 'level', 'forecast', 'night', 'btn-shop', 'btn-build', 'btn-tree', 'btn-ashes', 'panel', 'veil', 'summary']) {
       $(id).classList.add('hidden');
     }
-    for (const id of ['btn-shop', 'btn-build', 'btn-ashes']) $(id).classList.remove('new');
+    for (const id of ['btn-shop', 'btn-build', 'btn-tree', 'btn-ashes']) $(id).classList.remove('new');
     this.shown.clear();
     this.panelTab = null;
-    this.barHold = false;
+    this.points = -1;
     this.lv.level = -1;
     this.lv.shown = this.lv.target = 0;
     $('toasts').innerHTML = '';
@@ -1201,16 +1129,12 @@ export class Ui {
     this.toastQ = [];
     this.noticeQ = [];
     this.eventCb = null;
-    this.tutOn = false;
-    this.tutStep = null;
-    this.tutDone = new Set();
-    this.saveTut();
     this.guide(null);
     this.goalSig = '';
     $('goal').classList.add('hidden');
   }
 
   get modalOpen() {
-    return ['modal', 'menu', 'mm', 'summary', 'event'].some((id) => !$(id).classList.contains('hidden'));
+    return ['menu', 'mm', 'summary', 'event'].some((id) => !$(id).classList.contains('hidden'));
   }
 }

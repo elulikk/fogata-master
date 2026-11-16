@@ -7,7 +7,7 @@ import { MAX_SIZE, capacityOf, sizeOf, hearthPerks } from '../data/sizes.js';
 import { FLAMES } from '../data/flames.js';
 import { LOOKS } from '../gfx/hearths.js';
 import { CUT_ORDER } from '../data/woods.js';
-import { buildSlots, nearestFree, BASE_PER_RING } from '../utils/slots.js';
+import { buildSlots, nearestFree } from '../utils/slots.js';
 
 export class Pit {
   constructor(scene, index, cfg = {}, x = 520) {
@@ -72,19 +72,23 @@ export class Pit {
   get airSize() { return this.spec.air; }
   get hs() { return this.spec.hs; }
 
-  // Área de leña que lo llena: todos sus lugares ocupados con piezas enteras (cartas de "Hueco" incluidas).
+  // Área de leña que lo llena: todos sus lugares ocupados con piezas enteras (habilidades de "Lugar para…" incluidas).
   get capacity() { return this.slotList.reduce((sum, s) => sum + s.len * s.th, 0); }
 
   // Lugares de más: dejan subir el tope de intensidad, si no sumar leña a un pozo a tope no rendiría.
-  get roomy() { return Math.sqrt(this.slotList.length / (this.spec.tipis * CUT_ORDER.length * BASE_PER_RING)); }
+  get roomy() { return Math.sqrt(Math.max(1, this.capacity) / Math.max(1, capacityOf(this.size))); }
 
   // Multiplicador de calor por tamaño, diluido si el pozo está casi vacío: 1 + (m-1)·clamp(carga / (umbral·capacidad
   // base), 0, 1); el umbral es 0,4 (Fogonero lo baja). m = mult/tipis, porque cada tipi de más ya suma su propio calor.
-  // Usa la capacidad base: una carta de "Hueco" no tiene que pedir más leña para el mismo bonus.
+  // Usa la capacidad base: un lugar de más no tiene que pedir más leña para el mismo bonus.
   get calorMult() {
     const f = Math.min(1, Math.max(0, (this.load || 0) / capacityOf(this.size) / (this.scene.state?.mods.fillThreshold || 0.4)));
     return 1 + (this.spec.mult / this.spec.tipis - 1) * f;
   }
+
+  // Ceniza de más tapa el lecho y ahoga el tiro (hasta -25% de aire); un poco abriga y frena el enfriado del lecho.
+  get choke() { return 0.25 * Math.min(1, Math.max(0, (this.ash - Pit.ASH_HARMLESS) / (Pit.ASH_MAX - Pit.ASH_HARMLESS))); }
+  get shelter() { return 0.25 * Math.min(1, Math.max(0, this.ash / Pit.ASH_HARMLESS)); }
 
   contains(x, y) {
     return x > this.left && x < this.right && y > this.top && y < this.bottom;
@@ -157,10 +161,18 @@ export class Pit {
     this.makeFlames();
   }
 
+  // Cuántas piezas de cada corte entran. Un corte cerrado sigue cerrado aunque haya mejoras.
+  slotCounts() {
+    const extra = this.scene.state?.mods.extraSlots || [];
+    return CUT_ORDER.map((cut, i) => (this.spec.slots[cut] ? this.spec.slots[cut] + (extra[i] || 0) : 0));
+  }
+
+  accepts(cut) { return this.spec.slots[cut] > 0; }
+
   // Rehace los lugares para la posición y el tamaño actuales; la leña que ya estaba sigue en su anillo.
   layoutSlots() {
     const logs = this.slotList.filter((s) => s.log).map((s) => s.log);
-    this.slotList = buildSlots(this.x, this.half, this.spec.tipis, GROUND_Y, this.scene.state?.mods.extraSlots);
+    this.slotList = buildSlots(this.x, this.half, this.spec.tipis, GROUND_Y, this.slotCounts());
     for (const l of logs) {
       const old = l.slot;
       const slot = this.slotList.find((q) => !q.log && q.tier === old.tier && q.tipi === old.tipi && q.side === old.side)
@@ -276,3 +288,5 @@ export class Pit {
 }
 
 Pit.WALL_K = 1.5;
+Pit.ASH_HARMLESS = 0.4;
+Pit.ASH_MAX = 1.5;

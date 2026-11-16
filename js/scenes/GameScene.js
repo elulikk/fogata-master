@@ -2,12 +2,15 @@
 
 import { WOODS, SPECIES, SPECIES_ORDER, CUTS, CUT_ORDER, woodKey } from '../data/woods.js';
 import { MILESTONES, milestoneDue, levelThreshold } from '../data/progress.js';
-import { allItems, woodOpen, MARKET_RECOVER } from '../data/shop.js';
+import { allItems, speciesOpen, cutOpen, compareSizes, MARKET_RECOVER } from '../data/shop.js';
 import { SUPPLIERS } from '../data/supply.js';
-import { CARDS, rollCards } from '../data/cards.js';
+import { BRANCHES, SKILLS, skillOpen, skillPoints, canLearn, skillNeeds } from '../data/skills.js';
+import { TUTORIAL, TUTORIAL_END } from '../data/tutorial.js';
+import { ORBS } from '../data/orbs.js';
 import { META } from '../data/meta.js';
-import { toolOf } from '../data/tools.js';
-import { stepNight, nightGoal, dawnAsh, DAY, FIRST_DAY_LEFT } from '../data/nights.js';
+import { TOOLS, toolOf, toolAvailable } from '../data/tools.js';
+import { DEV_ACTIONS } from '../data/dev.js';
+import { stepNight, nightGoal, dawnAsh, DAY, NIGHT, FIRST_DAY_LEFT } from '../data/nights.js';
 import { ACHIEVEMENTS, rewardLabel } from '../data/achievements.js';
 import { Log } from '../objects/Log.js';
 import { Fire } from '../objects/Fire.js';
@@ -19,6 +22,11 @@ import { pointSegDist } from '../utils/geom.js';
 import { nearestFree, TIER_TINT } from '../utils/slots.js';
 import { SlotController } from './SlotController.js';
 import { GROUND_BUDGET, footprint, SIZES, MAX_SIZE, STRUCTURE, capacityOf } from '../data/sizes.js';
+
+// Ceniza en el pozo: con cuánta se puede rastrillar y con cuánta el juego presenta el rastrillo.
+const RAKE_MIN = 0.08;
+const RAKE_TEACH_AT = 0.3;
+const RAKE_HINT_AT = 0.9;
 
 const RACK = { left: 18, right: 232, bottom: GROUND_Y - 4 };
 const RACK_MIN_TOP = 214; // techo de la pila: su título queda debajo del HUD de calor
@@ -73,7 +81,6 @@ export class GameScene extends Phaser.Scene {
     this.rate = 0;
     this.supplyTimers = {}; // avance (0..1) de cada proveedor de data/supply.js
     this.demandTimer = 0;
-    this.pendingLevel = null;
     this.resetting = false;
     this.nightTimer = 0;
     this.rateInfo = { total: 0, parts: [] };
@@ -94,20 +101,16 @@ export class GameScene extends Phaser.Scene {
     this.setupFeelEvents();
     this.bindUi();
 
-    // Arranque: una fogata con leña ya prendida. Al volver a una partida
-    // guardada solo queda una rama encendida (la leña en el fuego no se guarda).
+    // Partida nueva: unas ramas sin prender en el pozo, para que el jugador prenda su primer fuego con el pedernal.
+    // Al volver a una partida guardada, una rama prendida de regalo (la leña en el fuego no se guarda).
     const pit = this.pitObjs[0];
-    if (data.playTime < 1) this.fire.ignite(this.addLog('pino_tronco', pit), true);
-    this.fire.ignite(this.addLog('pino_rama', pit), true);
+    if (data.playTime < 1) for (let i = 0; i < 3; i++) this.addLog('pino_rama', pit);
+    else this.fire.ignite(this.addLog('pino_rama', pit), true);
+    this.netGfx = this.add.graphics().setDepth(69).setBlendMode(Phaser.BlendModes.ADD);
 
     // Al cargar una partida, vuelvo a mostrar lo que ya estaba desbloqueado.
     for (const id of Object.keys(data.unlocked)) this.applyUnlock(id, false);
     this.revealAshes();
-    // Tutorial: quien ya tiene partida no lo ve; el progreso del tutorial se guarda en la UI.
-    this.ui.tutorial('load', {
-      progress: data.totalCalor > 120 || (data.level | 0) > 1 || Object.keys(data.unlocked).length > 0,
-      size: Math.max(0, ...data.pits.map((q) => q.size | 0)),
-    });
     this.state.onStale = () => this.ui.eventCard?.({
       icon: '⚠️',
       title: 'Otra pestaña guardó esta partida',
@@ -176,7 +179,7 @@ export class GameScene extends Phaser.Scene {
 
   layoutRack() {
     const seen = this.state.data.seenWood;
-    const rows = SPECIES_ORDER.filter((sp) => seen[sp] || woodOpen(this.state.data, sp));
+    const rows = SPECIES_ORDER.filter((sp) => seen[sp] || speciesOpen(this.state.data, sp));
     if (seen.pina) rows.push('pina');
     const sig = rows.join(',');
     if (sig === this.rackSig) return;
@@ -243,11 +246,14 @@ export class GameScene extends Phaser.Scene {
         c.plus.setVisible(!!open);
         if (open) c.plus.setAlpha(this.state.canPay(c.item.cost(this.state.priceLevel(c.item))) ? 1 : 0.35);
       }
+      // Un corte que ninguna fogata acepta todavía se ve apagado.
+      const closed = !cutOpen(this.state.data, WOODS[c.key].cut);
       const n = res[c.key] || 0;
-      if (n === c.count) continue;
+      if (n === c.count && closed === c.closed) continue;
       c.count = n;
-      c.label.setText(`×${n}`).setColor(n ? '#f3e6d3' : '#8a7a68');
-      c.img.setAlpha(n ? 1 : 0.25);
+      c.closed = closed;
+      c.label.setText(closed && !n ? '🔒' : `×${n}`).setColor(n && !closed ? '#f3e6d3' : '#8a7a68');
+      c.img.setAlpha(n && !closed ? 1 : 0.25);
     }
   }
 
@@ -280,7 +286,8 @@ export class GameScene extends Phaser.Scene {
     const stats = bars ? `\nPrende ${dots(bars.prende)}\nDura   ${dots(bars.dura)}\nCalor  ${dots(bars.calor)}` : '';
     const it = cell.item?.requires(this.state.data) ? cell.item : null;
     const offer = it ? `\n+ ${it.bundle} por ${this.state.price(it.cost(this.state.priceLevel(it))).calor} de calor` : '';
-    this.rackInfo.setText(`${wood.name}\n${wood.desc}${wood.lights ? `\n${wood.lights}.` : ''}${stats}${offer}`)
+    const closed = cutOpen(this.state.data, wood.cut) ? '' : `\n🔒 Tus fogatas todavía no aceptan ${CUTS[wood.cut].plural}: evolucionalas.`;
+    this.rackInfo.setText(`${wood.name}\n${wood.desc}${wood.lights ? `\n${wood.lights}.` : ''}${stats}${offer}${closed}`)
       .setPosition(RACK.right + 12, Math.min(cell.rect.y, GROUND_Y - 150)).setVisible(true);
     return this.rackInfo;
   }
@@ -337,13 +344,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      const pit = this.fire.pitAt(x, y) || this.fire.pitAt(x, Math.max(y, GROUND_Y - 100));
-      if (pit && this.state.bought.fuelle && this.fire.pitIsLit(pit)) {
-        this.bellowsPit = pit;
-        this.pump(pit);
-        return;
-      }
-      this.useTool(x, y);
+      this.useTool(x, y, true);
     });
 
     this.input.on('pointermove', (p) => {
@@ -371,7 +372,7 @@ export class GameScene extends Phaser.Scene {
         cursor = 'grab';
         if (!this.touch && !p.wasTouch) this.hoverLog = this.logAt(x, y); // resalte solo con mouse y sin arrastrar
       }
-      else if (this.state.bought.fuelle && this.fire.pitAt(x, y) && this.fire.pitIsLit(this.fire.pitAt(x, y))) cursor = 'pointer';
+      else if (!this.activeTool().heat && this.fire.pitAt(x, y)) cursor = 'pointer';
       this.input.setDefaultCursor(cursor);
     });
 
@@ -411,7 +412,6 @@ export class GameScene extends Phaser.Scene {
     this.drag = { key, img, tier: WOODS[key].tier, pid: p.id, px: p.worldX, py: p.worldY, slot: null, pit: null };
     this.audio.pull(WOODS[key].weight);
     this.ui.setDragging(true);
-    this.ui.tutorial('grab');
     this.input.setDefaultCursor('grabbing');
   }
 
@@ -455,12 +455,14 @@ export class GameScene extends Phaser.Scene {
       const log = new Log(this, d.img.x, d.img.y, d.key, d.img.rotation);
       this.fire.addLog(log);
       this.fire.placeLog(log, d.pit, d.slot);
+      this.state.data.dropped++;
       d.img.destroy();
       return;
     }
     if (!cancel && d.pit && !d.slot) {
+      const cutName = CUTS[WOODS[d.key].cut].plural;
       this.audio.overflowReject();
-      this.worldMsg(d.pit, `No hay lugar para más ${CUTS[WOODS[d.key].cut].plural}`, '#ffb36b', 1, 1);
+      this.worldMsg(d.pit, d.pit.accepts(WOODS[d.key].cut) ? `No hay lugar para más ${cutName}` : `${d.pit.spec.name} no acepta ${cutName}:\nevolucionala en Construir`, '#ffb36b', 1, 1, 2200);
     }
     this.flyToRack(d.img, d.key);
   }
@@ -477,16 +479,42 @@ export class GameScene extends Phaser.Scene {
 
   // Elige la herramienta de la barra de abajo (lo llama la UI).
   selectTool(id) {
-    if (this.state.data.tool === id) return;
+    if (this.state.data.tool === id || !toolAvailable(this.state.data, toolOf(id))) return;
     this.state.data.tool = id;
     this.audio.slotTick();
   }
 
-  // Usa la herramienta elegida sobre la leña sin prender que haya cerca.
-  useTool(x, y) {
-    const near = this.fire.logs.filter((l) => l.state === 'cruda' && pointSegDist(x, y, ...l.endpoints()) < 70);
-    if (!near.length) return;
+  // La herramienta en uso: la elegida, o el pedernal si esa todavía no se tiene.
+  activeTool() {
     const tool = toolOf(this.state.data.tool);
+    return toolAvailable(this.state.data, tool) ? tool : toolOf('pedernal');
+  }
+
+  // Usa la herramienta elegida en ese punto: el rastrillo y el fuelle actúan sobre la fogata; las demás
+  // prenden la leña sin prender que haya cerca. `hold`: el puntero queda apretado (el fuelle sigue soplando).
+  useTool(x, y, hold = false) {
+    const tool = this.activeTool();
+    const pit = this.fire.pitAt(x, y) || this.fire.pitAt(x, Math.max(y, GROUND_Y - 100));
+    if (tool.rakes) {
+      if (pit) this.rake(pit, true);
+      return;
+    }
+    if (tool.blows) {
+      if (!pit) return;
+      if (!this.fire.pitIsLit(pit)) return void this.floatText(x, y - 20, 'El fuelle aviva un fuego prendido', '#ffb36b');
+      if (hold) this.bellowsPit = pit;
+      this.pump(pit);
+      return;
+    }
+    const near = this.fire.logs.filter((l) => l.state === 'cruda' && pointSegDist(x, y, ...l.endpoints()) < 70);
+    if (!near.length) {
+      // El pedernal se golpea igual, aunque no haya nada cerca que prender.
+      if (!tool.res && pit) {
+        this.audio[tool.sound](false);
+        this.fire.sparkAt({ x, y }, Math.ceil(tool.sparks / 2));
+      }
+      return;
+    }
     const res = this.state.res;
     if (tool.res && !(res[tool.res] > 0)) {
       this.floatText(x, y - 20, `No te quedan: ${tool.name.toLowerCase()}`, '#ff9a80');
@@ -498,20 +526,50 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (tool.res) this.state.add(tool.res, -1);
-    const pit = this.fire.pitAt(x, y);
     const rain = pit ? pit.rain : this.weather.rain;
     const ok = Math.random() < tool.odds * (1 - rain * tool.rainOdds);
     this.audio[tool.sound](ok);
     this.fire.sparkAt({ x, y }, ok ? tool.sparks : Math.ceil(tool.sparks / 2));
     if (ok) this.fire.strike(x, y, tool.heat, tool.ttl, tool.r);
-    else if (tool.res) this.floatText(x, y - 20, 'La lluvia lo apagó', '#8fb8e8');
+    else if (tool.res && rain > 0) this.floatText(x, y - 20, 'La lluvia lo apagó', '#8fb8e8');
     if (tool.res && !res[tool.res]) {
       this.state.data.tool = 'pedernal';
       this.ui.toast('Te quedaste sin fósforos: pasaste al pedernal (cuesta más).', 'bad');
     }
   }
 
-  // Una carta cambió cuántos lugares entran: rehace los de todos los pozos (la leña sigue donde estaba).
+  // Saca la ceniza del pozo: destapa el tiro y aviva el lecho de brasas. `byHand`: lo hizo el jugador (avisa si no hay nada).
+  rake(pit, byHand = false) {
+    if (pit.ash < RAKE_MIN) {
+      if (byHand) this.floatText(pit.x, GROUND_Y - 110, 'No hay ceniza que sacar', '#ffb36b');
+      return false;
+    }
+    const out = pit.ash;
+    pit.ash = 0;
+    pit.bed = Math.min(1, pit.bed + 0.04 + 0.06 * out);
+    pit.bellows = Math.max(pit.bellows, 0.25);
+    pit.flash = Math.max(pit.flash || 0, 0.4);
+    pit.drawAsh();
+    const n = Math.round((8 + out * 16) * this.fire.fxScale);
+    for (let i = 0; i < n; i++) this.fire.ashDust.emitParticleAt(pit.x + (Math.random() - 0.5) * pit.half * 1.5, GROUND_Y - 4 - Math.random() * 14);
+    if (this.fire.pitIsLit(pit)) this.fire.sparkAt({ x: pit.x, y: GROUND_Y - 14 }, 4 + Math.round(out * 6));
+    this.audio.rake();
+    return true;
+  }
+
+  // Pone una pieza de la pila en un lugar libre de ese pozo (lo usa el cuidador del fuego).
+  dropInto(key, pit) {
+    const slot = nearestFree(pit.slotList, WOODS[key].tier, pit.x, GROUND_Y - 60);
+    if (!slot || !(this.state.res[key] > 0)) return false;
+    this.state.add(key, -1);
+    const cell = this.cells.find((c) => c.key === key);
+    const log = new Log(this, cell ? cell.rect.centerX : RACK.right, cell ? cell.rect.centerY : GROUND_Y - 100, key, 0);
+    this.fire.addLog(log);
+    this.fire.placeLog(log, pit, slot);
+    return true;
+  }
+
+  // Una habilidad cambió cuántos lugares entran: rehace los de todos los pozos (la leña sigue donde estaba).
   refreshSlots() {
     this.state.recompute();
     for (const p of this.pitObjs) p.layoutSlots();
@@ -538,13 +596,11 @@ export class GameScene extends Phaser.Scene {
     ev.on('log:snap', (e) => {
       this.slotsCtl.onSlotSnap(e);
       this.fire.landInPit(e.log, 0.5);
-      this.ui.tutorial('snap');
       this.firstTime('pit', e.slot.x, e.slot.y);
     });
     // Fogata armada: leña de los tres tamaños. Se arma y se desarma seguido (la leña se va achicando),
     // así que se festeja solo de vez en cuando.
     ev.on('structure:formed', ({ pit, type, quality }) => {
-      this.ui.tutorial('structure:tipi');
       const now = this.time.now;
       if (now - (pit.formedT ?? -1e9) < 60000) return;
       pit.formedT = now;
@@ -567,7 +623,6 @@ export class GameScene extends Phaser.Scene {
     });
     // Crecer de tamaño.
     ev.on('pit:grow', ({ pit, size }) => {
-      this.ui.tutorial('pit:grow', { size });
       if (this.sinceStart > 1) this.playGrow(pit, size);
     });
   }
@@ -626,7 +681,7 @@ export class GameScene extends Phaser.Scene {
   pitInfoList() {
     return this.pitObjs.map((p, i) => ({
       i, screenX: p.x, screenY: GROUND_Y + 6, size: p.size, sizeName: SIZES[p.size]?.name,
-      load: this.fire.slotted(p).length, cap: p.slotList.length, structure: p.structure,
+      load: this.fire.slotted(p).length, cap: p.slotList.length, structure: p.structure, choked: p.choke > 0.04,
       bonus: p.structure.type === 'tipi' ? STRUCTURE.tipi.calor * p.structure.quality : 0,
     }));
   }
@@ -650,13 +705,12 @@ export class GameScene extends Phaser.Scene {
 
   setupFireEvents() {
     this.fire.onCrackle = (x, y, strength, log) => {
-      if (!this.state.unlocked.chispazos || !log.pit) return;
-      if (Math.random() < 0.09 * this.state.mods.orbs * log.pit.perks.orbs * strength) this.spawnOrb(x, y);
+      if (!log.pit) return;
+      if (Math.random() < ORBS.perCrackle * this.state.mods.orbs * log.pit.perks.orbs * strength) this.spawnOrb(x, y);
     };
     this.fire.onIgnite = (log) => {
       // Fire ya hace el sonido, el pulso de luz y las chispas; acá solo la cámara.
       if (this.sinceStart < 1) return;
-      this.ui.tutorial('ignite');
       if (!this.fx) return;
       this.firstTime('ignite', log.x, log.y - 10);
       if (log.wood.thickness >= 24) this.cameras.main.shake(110, 0.0018);
@@ -686,10 +740,23 @@ export class GameScene extends Phaser.Scene {
   // --- Chispazos (se juntan pasando el mouse) ---
 
   spawnOrb(x, y) {
-    const value = Math.max(1, Math.round(1 + this.rate * 0.8));
+    if (this.orbs.length >= ORBS.cap) return;
+    const value = Math.max(1, Math.round(ORBS.baseValue + this.rate * ORBS.rateValue));
     const img = this.add.image(x, y, 'orb').setBlendMode(Phaser.BlendModes.ADD).setDepth(70).setScale(0.2);
     this.tweens.add({ targets: img, scale: 0.5 + Math.min(0.35, value / 60), duration: 300, ease: 'back.out' });
-    this.orbs.push({ img, value, vx: (Math.random() - 0.5) * 60, vy: -70 - Math.random() * 40, life: 7, phase: Math.random() * 6 });
+    this.orbs.push({ img, value, vx: (Math.random() - 0.5) * 60, vy: -70 - Math.random() * 40, life: ORBS.life * (0.85 + 0.3 * Math.random()), phase: Math.random() * 6 });
+  }
+
+  // Cada fogata prendida larga chispas cada tanto, más seguido cuanto más fuerte arde.
+  emitOrbs(dt) {
+    const m = this.state.mods;
+    for (const p of this.pitObjs) {
+      if (!this.fire.pitIsLit(p)) continue;
+      const i = Math.min(1, p.intensity / (2.5 * p.spec.tipis));
+      if (Math.random() < ((ORBS.minimum + i) * m.orbs * p.perks.orbs * dt) / ORBS.every) {
+        this.spawnOrb(p.x + (Math.random() - 0.5) * p.half * 0.9, GROUND_Y - 50 - Math.random() * 50);
+      }
+    }
   }
 
   updateOrbs(dt) {
@@ -701,6 +768,9 @@ export class GameScene extends Phaser.Scene {
         this.combo = 0;
       }
     }
+    // Red mágica: dentro de su radio, las chispas se van hacia el cursor (más rápido cuanto más cerca).
+    const net = ORBS.netRadius * this.state.mods.orbPull;
+    const live = !this.paused && p && (this.touch ? p.isDown : true);
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const o = this.orbs[i];
       o.life -= dt;
@@ -708,17 +778,35 @@ export class GameScene extends Phaser.Scene {
       o.vx *= 0.97;
       o.img.x += (o.vx + Math.sin(this.time.now * 0.004 + o.phase) * 20) * dt;
       o.img.y += o.vy * dt;
+      if (net > 0 && live) {
+        const dx = p.worldX - o.img.x;
+        const dy = p.worldY - o.img.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < net && dist > 1) {
+          const step = Math.min(dist, ORBS.netSpeed * (1 + 2 * (1 - dist / net)) * dt);
+          o.img.x += (dx / dist) * step;
+          o.img.y += (dy / dist) * step;
+        }
+      }
       o.img.setAlpha(Math.min(1, o.life) * (0.8 + 0.2 * Math.sin(this.time.now * 0.02 + o.phase)));
       if (o.life <= 0) {
         o.img.destroy();
         this.orbs.splice(i, 1);
       }
     }
+    // El aro de la red alrededor del cursor.
+    const g = this.netGfx;
+    g.clear();
+    if (net > 0 && live && !this.drag) {
+      const beat = 0.5 + 0.5 * Math.sin(this.time.now * 0.004);
+      g.lineStyle(2, 0xffc060, 0.22 + 0.1 * beat).strokeCircle(p.worldX, p.worldY, net);
+      g.lineStyle(6, 0xff9a33, 0.08).strokeCircle(p.worldX, p.worldY, net * 0.97);
+    }
     if (!this.paused && p) this.collectOrbsNear(p.worldX, p.worldY);
   }
 
   collectOrbsNear(x, y) {
-    const r = 50 * this.state.mods.magnet * (this.touch ? 1.4 : 1);
+    const r = ORBS.reach * this.state.mods.magnet * (this.touch ? 1.4 : 1);
     for (let i = this.orbs.length - 1; i >= 0; i--) {
       const o = this.orbs[i];
       if (Math.hypot(o.img.x - x, o.img.y - y) > r) continue;
@@ -727,8 +815,8 @@ export class GameScene extends Phaser.Scene {
       // Combo: cosmético (pitch, tamaño y color); el bonus de calor lo limita mods.comboCap (1 = sin bonus).
       const c = ++this.combo;
       if (c >= 10 && c % 2 === 0) this.fire.glowNear(o.img.x, 0.25 + Math.min(0.3, (c - 10) * 0.02)); // combo alto: la llama brilla
-      this.comboT = 2.2;
-      const value = Math.max(1, Math.round(o.value * Math.min(this.state.mods.comboCap || 1, 1 + c * 0.03)));
+      this.comboT = ORBS.comboTime;
+      const value = Math.max(1, Math.round(o.value * this.state.mods.orbValue * Math.min(this.state.mods.comboCap || 1, 1 + c * ORBS.comboStep)));
       this.audio.coin(Math.min(2.2, 1 + c * 0.05 + Math.random() * 0.08));
       if (c % 5 === 0) {
         this.audio.comboDing(Math.min(6, c / 5));
@@ -826,14 +914,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // --- Progreso, compras y cartas ---
+  // --- Progreso, compras y habilidades ---
 
   applyUnlock(id, announce) {
     const ui = this.ui;
-    const reveal = MILESTONES.find((m) => m.id === id)?.reveal;
-    if (reveal) {
-      ui.reveal(reveal);
-      if (announce && reveal.startsWith('btn-')) ui.markNew(reveal);
+    for (const el of MILESTONES.find((m) => m.id === id)?.reveal || []) {
+      ui.reveal(el);
+      if (announce && el.startsWith('btn-')) ui.markNew(el);
     }
     if (id === 'clima' && announce) this.weather.timer = 25;
     if (announce && this.fx) {
@@ -866,10 +953,17 @@ export class GameScene extends Phaser.Scene {
         this.audio.unlock_();
       }
     }
+    // Herramientas que se abren con el juego: las que gastan un recurso, al tener uno; el rastrillo, cuando hay ceniza.
+    for (const t of TOOLS) if (t.res && t.opens && data.res[t.res] > 0) data.unlocked[t.opens] = true;
+    if (!data.unlocked.rastrillo && this.pitObjs.some((p) => p.ash >= RAKE_TEACH_AT)) {
+      data.unlocked.rastrillo = true;
+      this.ui.toast('🧹 La ceniza se junta y ahoga el fuego: el rastrillo (3) la saca y aviva las brasas.', 'unlock', 7000);
+      this.audio.unlock_();
+    }
     // Ítems nuevos en la tienda o en construir.
     data.seenItems = data.seenItems || {};
     for (const it of allItems(data)) {
-      if (it.tab === 'pila' || data.seenItems[it.id] || !it.requires(data)) continue;
+      if (it.key || data.seenItems[it.id] || !it.requires(data)) continue;
       data.seenItems[it.id] = true;
       if (Object.keys(data.seenItems).length > 2) this.ui.markNew(it.tab === 'tienda' ? 'btn-shop' : 'btn-build');
     }
@@ -880,52 +974,47 @@ export class GameScene extends Phaser.Scene {
       if (this.fx) this.fire.flare?.(1.2);
       this.events.emit('achievement', a);
     }
-    // Subida de nivel, o carta gratis de un amanecer.
-    if (data.unlocked.cartas && !this.paused && !this.pendingLevel) {
-      if (data.night.freeCard) {
-        data.night.freeCard = false;
-        this.queueCards(false);
-      } else if (data.totalCalor >= levelThreshold(data.level + 1, this.state.mods.levelEase)) {
-        this.queueCards(true);
-      }
-    }
+    // Subida de nivel: cada nivel da un punto de habilidad, que se gasta cuando quieras.
+    while (data.totalCalor >= levelThreshold(data.level + 1, this.state.mods.levelEase)) this.levelUp();
   }
 
-  // Sortea las cartas y arranca la secuencia; `levelUp` suma nivel (y Tributo).
-  queueCards(levelUp) {
+  levelUp() {
     const data = this.state.data;
-    const cards = rollCards(data, 3);
-    if (levelUp) {
-      data.level++;
-      const secs = this.state.mods.tribute;
-      if (secs > 0) {
-        const gift = Math.round(this.rate * secs);
-        if (gift > 0) {
-          this.state.gainCalor(gift);
-          this.floatText(this.pitObjs[0].x, GROUND_Y - 260, `Tributo +${gift}`, '#ffd36b');
-        }
-      }
+    data.level++;
+    const gift = Math.round(this.rate * this.state.mods.tribute);
+    if (gift > 0) this.state.gainCalor(gift);
+    const lines = [`¡Nivel ${data.level}!`];
+    if (data.unlocked.habilidades) {
+      lines.push('● +1 punto de habilidad');
+      this.ui.markNew('btn-tree');
     }
-    if (!cards.length) return;
-    this.pendingLevel = { level: data.level, cards, levelUp };
-    this.playLevelSequence((opts) => this.showLevelCards(opts));
+    if (gift > 0) lines.push(`Tributo +${gift}`);
+    this.worldMsg(this.pitObjs[0], lines.join('\n'), '#ffd36b', 1.3, 2, 2600);
+    this.playLevelSequence();
+    this.events.emit('level', { level: data.level });
   }
 
-  showLevelCards(opts = {}) {
-    const p = this.pendingLevel;
-    if (!p) return;
-    const owned = this.state.data.cards;
-    this.setPaused(true);
-    // Sonido de rareza: la épica entra 250 ms tarde (igual que su animación).
-    const top = p.cards.some((c) => c.rarity === 'epica') ? 'epica' : p.cards.some((c) => c.rarity === 'rara') ? 'rara' : null;
-    if (top) {
-      this.time.delayedCall(top === 'epica' ? 250 : 80, () => this.audio.rarity(top));
-      if (top === 'epica' && this.fx) this.cameras.main.flash(300, 170, 90, 255, false);
-    }
-    this.ui.showCards(p.cards.map((c) => ({
-      id: c.id, icon: c.icon, name: c.name, desc: c.desc, rarity: c.rarity,
-      level: owned[c.id] || 0, max: c.max, effect: c.effect(owned[c.id] || 0),
-    })), owned, { lockMs: opts.lockMs ?? 400 });
+  // Árbol de habilidades para la UI: puntos y, por rama, sus nodos con el estado de cada uno.
+  treeInfo() {
+    const d = this.state.data;
+    return {
+      points: skillPoints(d),
+      branches: BRANCHES.map((b) => ({
+        ...b,
+        nodes: Object.entries(SKILLS).filter(([, s]) => s.branch === b.id).map(([id, s]) => ({
+          id, icon: s.icon, name: s.name, desc: s.desc, row: s.row, col: s.col, cost: s.cost, max: s.max,
+          level: d.arbol[id] || 0, open: skillOpen(d, id), can: canLearn(d, id), needs: skillNeeds(d, id),
+        })),
+      })),
+    };
+  }
+
+  learn(id) {
+    if (!this.state.spendPoint(id)) return false;
+    this.refreshSlots();
+    this.audio.buy();
+    this.state.save();
+    return true;
   }
 
   // --- Efectos de celebración ---
@@ -936,18 +1025,13 @@ export class GameScene extends Phaser.Scene {
     if (this.fire) this.fire.motion = this.fx;
   }
 
-  // Celebración de nivel antes de mostrar las cartas (un solo timer, tiempos del plan).
-  playLevelSequence(done) {
-    if (!this.fx) {
-      done({ lockMs: 450 });
-      return;
-    }
+  // Celebración de nivel: destello, llamarada y fanfarria. Cada 5 niveles, más fuerte.
+  playLevelSequence() {
     const tier = this.state.data.level % 5 === 0 ? 1 : 0;
-    this.ui.fillLevelBar?.();                            // 0 ms
-    this.cameras.main.flash(180, 255, 211, 107, false);
-    this.fire.flare(tier ? 1.6 : 1);                     // 0–250 ms
     this.time.delayedCall(150, () => this.audio.levelUp(tier));
-    this.time.delayedCall(900, () => done({ lockMs: 400 }));
+    if (!this.fx) return;
+    this.cameras.main.flash(180, 255, 211, 107, false);
+    this.fire.flare(tier ? 1.6 : 1);
   }
 
   // Amanecer: `info` es el payload de 'night:dawn'.
@@ -1035,14 +1119,15 @@ export class GameScene extends Phaser.Scene {
     } else {
       night.fails++;
     }
-    const cardFree = !!ev.cardFree && !!data.unlocked.cartas;
-    if (cardFree) night.freeCard = true;
+    // Una buena noche regala un punto de habilidad.
+    const point = !!ev.point;
+    if (point) data.extraPoints++;
     const summary = {
-      kind: 'dawn', n, success: ev.success, ash, cardFree, goal, margin,
+      kind: 'dawn', n, success: ev.success, ash, point, goal, margin,
       ratio: ev.ratio, calor: Math.round(data.totalCalor - night.startTotal),
       dawns: night.dawns, ...this.state.ashSummary(),
     };
-    const info = { n, success: ev.success, ash, cardFree, summary };
+    const info = { n, success: ev.success, ash, point, summary };
     if (ev.failed) this.events.emit('night:fail', info);
     this.events.emit('night:dawn', info);
     this.revealAshes();
@@ -1111,21 +1196,6 @@ export class GameScene extends Phaser.Scene {
     this.state.save();
   }
 
-  pickCard(id) {
-    const card = CARDS.find((c) => c.id === id);
-    if (!card) return;
-    const data = this.state.data;
-    data.cards[id] = (data.cards[id] || 0) + 1;
-    card.apply?.(this);
-    this.pendingLevel = null;
-    this.state.recompute();
-    this.ui.hideCards();
-    this.setPaused(false);
-    this.audio.buy();
-    this.ui.toast(`${card.icon} ${card.name}`, 'unlock', 2500);
-    this.state.save();
-  }
-
   shopItems(tab) {
     const data = this.state.data;
     return allItems(data)
@@ -1138,10 +1208,8 @@ export class GameScene extends Phaser.Scene {
         const price = this.state.price(cost);
         return {
           id: it.id, icon: it.icon, name: it.name, desc: it.desc, level, max, maxed, price,
-          need: {
-            calor: Math.max(0, Math.ceil(price.calor - data.calor)),
-            tronco: Math.max(0, Math.ceil(price.tronco - this.state.troncos())),
-          },
+          stock: it.key ? data.res[it.key] || 0 : null,
+          need: { calor: Math.max(0, Math.ceil(price.calor - data.calor)) },
           affordable: this.state.canPay(cost),
           effect: it.effect(Math.min(level, max - 1)),
           effects: this.projectEffects(it, level),
@@ -1150,17 +1218,10 @@ export class GameScene extends Phaser.Scene {
       });
   }
 
-  // Efectos de "Agrandar": capacidad, aire, calor y "con tu leña" (calor estimado con la carga real del pozo).
+  // Efectos de "Evolucionar": lugares por corte, calor, consumo y "con tu leña" (calor estimado con la carga real del pozo).
   projectEffects(it, level) {
     if (!it.id.startsWith('agrandar_') || level >= MAX_SIZE) return undefined;
-    const a = SIZES[level];
-    const b = SIZES[level + 1];
-    const eff = [
-      { label: 'Tipis', before: `${a.tipis}`, after: `${b.tipis}` },
-      { label: 'Aire', before: `+${Math.round((a.air - 1) * 100)}%`, after: `+${Math.round((b.air - 1) * 100)}%` },
-      { label: 'Calor', before: `×${a.mult}`, after: `×${b.mult}` },
-      { label: 'Consumo de leña', before: `×${a.burn}`, after: `×${b.burn}` },
-    ];
+    const eff = compareSizes(SIZES[level], SIZES[level + 1]);
     const pit = this.pitObjs[Number(it.id.split('_')[1])];
     if (pit && (pit.loadRatio || 0) > 0.02) {
       // La carga real (área de leña) pasa a fracción de la capacidad del tamaño nuevo.
@@ -1193,21 +1254,120 @@ export class GameScene extends Phaser.Scene {
       data.pits[idx].roof = true;
       this.pitObjs[idx].setRoof(true);
     } else if (kind === 'agrandar') {
-      data.pits[idx].size = level + 1;
-      this.pitObjs[idx].setSize(level + 1);
-      this.layoutPits();
+      this.growPit(Number(idx));
     } else if (kind === 'fogata') {
-      data.pits.push({ size: 0, roof: false });
-      const pit = new Pit(this, data.pits.length - 1, data.pits[data.pits.length - 1], 0);
-      this.pitObjs.push(pit);
-      this.fire.addPit(pit);
-      this.layoutPits();
-      this.ui.toast('Nueva fogata lista. Cargala de leña y prendela.', 'unlock');
+      this.addPit();
     }
-    if (id === 'fuelle') this.ui.toast('Fuelle: mantené apretado sobre una fogata prendida (o la barra espaciadora).', 'unlock', 7000);
+    if (id === 'fuelle') this.ui.toast('🪗 Fuelle: elegilo en la barra de abajo (4) y mantené apretado sobre una fogata prendida. También sopla la barra espaciadora.', 'unlock', 7000);
     this.state.recompute();
     this.audio.buy();
     this.state.save();
+  }
+
+  // La fogata `i` pasa al escalón siguiente.
+  growPit(i) {
+    const data = this.state.data;
+    const pit = this.pitObjs[i];
+    if (!pit || pit.size >= MAX_SIZE) return;
+    data.pits[i].size = pit.size + 1;
+    data.bought[`agrandar_${i}`] = pit.size + 1;
+    this.state.recompute();
+    pit.setSize(pit.size + 1);
+    this.layoutPits();
+  }
+
+  addPit() {
+    const data = this.state.data;
+    data.pits.push({ size: 0, roof: false });
+    const pit = new Pit(this, data.pits.length - 1, data.pits[data.pits.length - 1], 0);
+    this.pitObjs.push(pit);
+    this.fire.addPit(pit);
+    this.layoutPits();
+    this.ui.toast('Nueva fogata lista. Cargala de leña y prendela.', 'unlock');
+    this.worldMsg(pit, '🔥 ¡Nueva fogata!', '#ffd36b', 1.3, 2, 2400);
+  }
+
+  // --- Ayudas del menú de desarrollo (data/dev.js). No las usa el juego. ---
+
+  runDev(id) {
+    const a = DEV_ACTIONS.find((x) => x.id === id);
+    if (!a) return;
+    a.run(this);
+    this.state.recompute();
+    this.audio.buy();
+    if (id !== 'nueva') this.state.save();
+  }
+
+  devUnlock(id) {
+    if (this.state.data.unlocked[id]) return;
+    this.state.data.unlocked[id] = true;
+    this.applyUnlock(id, false);
+  }
+
+  devUnlockAll() {
+    const data = this.state.data;
+    for (const m of MILESTONES) this.devUnlock(m.id);
+    for (const t of TOOLS) if (t.opens) data.unlocked[t.opens] = true;
+    data.tuto = 99;
+    this.ui.reveal('btn-ashes');
+  }
+
+  devBuyAll() {
+    const data = this.state.data;
+    for (const it of allItems(data)) {
+      if (it.tab === 'tienda' && !it.market) data.bought[it.id] = it.max || 1;
+    }
+  }
+
+  devLightAll() {
+    for (const l of this.fire.logs) if (l.state === 'cruda') this.fire.ignite(l);
+  }
+
+  devFill() {
+    for (const p of this.pitObjs) {
+      for (const slot of p.slotList.filter((q) => !q.log)) {
+        const key = woodKey('pino', CUT_ORDER[slot.tier]);
+        this.state.add(key, 1);
+        this.dropInto(key, p);
+      }
+    }
+  }
+
+  devOrbs(n) {
+    for (let i = 0; i < n; i++) {
+      const p = this.pitObjs[(Math.random() * this.pitObjs.length) | 0];
+      this.spawnOrb(p.x + (Math.random() - 0.5) * p.half * 1.6, GROUND_Y - 60 - Math.random() * 120);
+    }
+  }
+
+  devWeather(kind) {
+    this.devUnlock('clima');
+    const w = this.weather;
+    if (!kind) {
+      w.phase = 'activo';
+      w.timer = 0.01;
+      return;
+    }
+    w.event = { kind, rain: kind === 'tormenta' ? 1 : 0.7, wind: kind === 'tormenta' ? 0.7 : 0, duration: 40 };
+    w.phase = 'aviso';
+    w.timer = 0.01;
+  }
+
+  devNight(which) {
+    this.devUnlock('noches');
+    const night = this.state.data.night;
+    if (which === 'noche') {
+      night.phase = 'day';
+      night.t = DAY - 0.1;
+    } else if (night.phase === 'night') {
+      night.t = NIGHT - 0.1;
+    }
+  }
+
+  devNewGame() {
+    this.state.wipe();
+    this.ui.resetView();
+    this.scene.restart();
   }
 
   // Ciclo de luz (H1): sin noches desbloqueadas, atardecer permanente; con ellas, día → atardecer →
@@ -1285,7 +1445,11 @@ export class GameScene extends Phaser.Scene {
       settingSeen: (key) => this.seenOnce(key),
       items: (tab) => this.shopItems(tab),
       buy: (id) => this.buy(id),
-      pickCard: (id) => this.pickCard(id),
+      tree: () => this.treeInfo(),
+      learn: (id) => this.learn(id),
+      restartTutorial: () => { this.state.data.tuto = 0; },
+      devActions: () => DEV_ACTIONS.map(({ id, icon, name, section }) => ({ id, icon, name, section })),
+      dev: (id) => this.runDev(id),
       mute: () => {
         this.audio.setMuted(!this.audio.muted);
         this.state.data.settings.muted = this.audio.muted;
@@ -1338,23 +1502,46 @@ export class GameScene extends Phaser.Scene {
 
   // --- Pistas de qué hacer ---
 
+  // El paso del tutorial que toca ahora (data/tutorial.js), o '' si ya terminó.
+  // Si el fuego se apaga a mitad de camino, las pistas comunes ayudan a prenderlo de nuevo.
+  tutorialHint() {
+    const d = this.state.data;
+    let i = d.tuto | 0;
+    if (i >= TUTORIAL.length) return '';
+    while (i < TUTORIAL.length && TUTORIAL[i].done(this)) i++;
+    if (i !== d.tuto) {
+      d.tuto = i;
+      this.audio.unlock_();
+      if (i >= TUTORIAL.length) {
+        this.ui.toast(TUTORIAL_END, 'unlock', 7000);
+        return '';
+      }
+    }
+    if (i >= 1 && this.fire.isOut) return '';
+    return (this.touch && TUTORIAL[i].touch) || TUTORIAL[i].text;
+  }
+
   currentHint() {
     const s = this.state;
+    const step = this.tutorialHint();
+    if (step) return step;
     if (this.fire.isOut) {
+      if (!this.fire.logs.some((l) => l.state === 'cruda')) return 'Se apagó. Arrastrá ramas de la pila al pozo.';
       return s.res.fosforo > 0
-        ? 'Se apagó. Poné ramas y tocalas para prender un fósforo.'
-        : 'Sin fósforos: poné ramas y tocalas para probar con el pedernal.';
+        ? 'Elegí el fósforo (1) o el pedernal (2) abajo y tocá las ramas para prenderlas.'
+        : 'Tocá las ramas para golpear el pedernal. Insistí: no siempre prende la chispa.';
     }
     if (this.sinceStart < 25 && s.totalCalor < 15) return 'Arrastrá leña de la pila a un lugar marcado del fuego.';
     if (this.fire.stats.llama === 0 && this.fire.stats.brasas > 0) return 'Quedan brasas… poné ramas, que prenden con poco.';
-    if (s.woodStock() === 0 && s.unlocked.tienda) return 'No te queda leña: tocá el + de la pila para comprar.';
+    if (s.woodStock() === 0 && s.unlocked.tienda) return 'No te queda leña: tocá el + de la pila o abrí Pyroshop (S).';
+    if (s.unlocked.rastrillo && this.pitObjs.some((p) => p.ash >= RAKE_HINT_AT)) return 'La ceniza ahoga el fuego: elegí el rastrillo (3) y tocá la fogata.';
     return '';
   }
 
   // --- Bucle ---
 
   update(time, delta) {
-    const dt = Math.min(delta, 50) / 1000;
+    const dt = (Math.min(delta, 50) / 1000) * (this.devSpeed || 1);
     const data = this.state.data;
 
     if (!this.paused) {
@@ -1373,6 +1560,7 @@ export class GameScene extends Phaser.Scene {
       this.updateNight(dt);
 
       this.updateSupply(dt);
+      this.emitOrbs(dt);
       if (this.bellowsPit && this.time.now - this.lastPump > 420) {
         if (this.fire.pitIsLit(this.bellowsPit)) this.pump(this.bellowsPit);
       }
@@ -1419,14 +1607,16 @@ export class GameScene extends Phaser.Scene {
         calor: data.calor,
         rate: this.rate,
         bump: true,
-        levelOn: !!data.unlocked.cartas,
+        levelOn: !!data.unlocked.habilidades,
+        points: data.unlocked.habilidades ? skillPoints(data) : 0,
         level: data.level,
         levelProgress: lvl.pct,
         levelCur: lvl.cur,
         levelNeed: lvl.need,
         rateInfo: this.rateInfo,
         night: data.unlocked.noches ? this.state.nightInfo() : null,
-        tool: data.tool,
+        tool: this.activeTool().id,
+        tools: TOOLS.filter((t) => toolAvailable(data, t)).map((t) => t.id),
         res: this.state.res,
         forecast: data.unlocked.clima ? this.weather.forecast : null,
         weatherOn: !!data.unlocked.clima,

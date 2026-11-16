@@ -3,11 +3,12 @@
 // una ranura es un guardado exportado (base64) en su propia clave de localStorage.
 
 import { HEAT } from '../utils/heat.js';
+import { SAVE_KEY } from '../state/GameState.js';
 
-const KEY = 'fogata-master-save-v1'; // partida activa y autoguardado (la escribe GameState)
-const PREV = 'fogata-master-prev';   // copia de seguridad de lo que se pisó por última vez
+const KEY = SAVE_KEY;                   // partida activa y autoguardado (la escribe GameState)
+const PREV = 'fogata-master-prev-v2';   // copia de seguridad de lo que se pisó por última vez
 const SLOTS = [1, 2, 3];
-const slotKey = (n) => `fogata-master-slot-${n}`;
+const slotKey = (n) => `fogata-master-v2-slot-${n}`;
 const $ = (id) => document.getElementById(id);
 
 const num = (v) => typeof v === 'number' && isFinite(v);
@@ -137,7 +138,6 @@ export class MainMenu {
   open(name = 'pause') {
     if (!this.isOpen) {
       this.root.classList.remove('hidden');
-      this.handlers.pause?.(true);
     }
     this.stack = [{ name }];
     this.render();
@@ -148,7 +148,6 @@ export class MainMenu {
     $('menu').classList.add('hidden');
     if (this.isOpen) {
       this.root.classList.add('hidden');
-      this.handlers.pause?.(false);
     }
     this.ui.pump();
   }
@@ -261,14 +260,15 @@ export class MainMenu {
   screen_howto() {
     return `<h2 id="mm-title">Cómo jugar</h2>
       <ul class="mm-howto">
-        <li><b>Arrastrar:</b> llevá la leña de la pila al fuego y soltala: se acomoda sola. El orden no importa, pero cada tamaño tiene sus lugares.</li>
-        <li><b>Prender:</b> elegí una herramienta en la barra de abajo y tocá la leña. Las ramas prenden con casi nada; la leña pide ramas ardiendo y los troncos, un fuego fuerte.</li>
-        <li><b>Consumo:</b> a la mitad, un tronco se vuelve leña y la leña se vuelve rama, y bajan de lugar. Las ramas terminan en ceniza.</li>
-        <li><b>Leña:</b> se compra con calor, en el + de la pila o en el Mercachifle. Un leñador te la trae solo.</li>
-        <li><b>Evolucionar:</b> en Construir, la fogata pasa a hogar, horno y fragua. Cada escalón abre maderas mejores.</li>
-        <li><b>Maderas:</b> pasá el mouse por la pila para ver cómo rinde cada especie.</li>
+        <li><b>Primer fuego:</b> tocá las ramas del pozo para golpear el pedernal hasta que prenda. Los fósforos prenden al toque, pero se gastan.</li>
+        <li><b>Arrastrar:</b> llevá la leña de la pila al fuego y soltala en un lugar marcado. El orden no importa, pero cada fogata acepta cierta cantidad de cada corte: la Fogatita, solo ramas.</li>
+        <li><b>Chispas:</b> las que suben del fuego valen calor. Pasá el cursor por encima para juntarlas.</li>
+        <li><b>Consumo:</b> a la mitad, un tronco se vuelve leña y la leña se vuelve rama. Las ramas terminan en ceniza, que se junta en el pozo y ahoga el fuego: sacala con el rastrillo.</li>
+        <li><b>Leña:</b> se compra con calor, en el + de la pila o en Pyroshop. Un leñador te la trae solo.</li>
+        <li><b>Evolucionar:</b> en Construir, la fogata pasa a fogón, hogar, horno y fragua. Cada escalón deja entrar más leña y abre maderas mejores.</li>
+        <li><b>Habilidades:</b> cada nivel da un punto para el árbol. Se gastan cuando quieras.</li>
         <li><b>Noche:</b> mantené el calor/s por encima de la meta hasta el amanecer.</li>
-        <li><b>Atajos:</b> 1 fósforo · 2 pedernal · S tienda · C construir · M sonido · Esc pausa.</li>
+        <li><b>Atajos:</b> 1 a 4 herramientas · S Pyroshop · C construir · H habilidades · A cenizas · M sonido · Esc pausa. Con una ventana abierta el juego queda en pausa.</li>
       </ul>
       <div class="menu-row">
         ${this.btn('retut', 'Ver la guía paso a paso', { cls: 'ghost' })}
@@ -310,7 +310,7 @@ export class MainMenu {
       case 'settings': return this.go('settings');
       case 'credits': return this.go('credits');
       case 'howto': return this.go('howto');
-      case 'retut': this.ui.tutorial('restart'); return this.close();
+      case 'retut': this.handlers.restartTutorial?.(); return this.close();
       case 'title': return this.open('title');
       case 'import': return $('btn-import').click();
       case 'new': return this.askNew();

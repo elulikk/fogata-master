@@ -8,10 +8,17 @@ import { GROUND_Y } from '../gfx/textures.js';
 import { STRUCTURE } from '../data/sizes.js';
 import { FLAMES } from '../data/flames.js';
 import { slotStructure, lowerFree } from '../utils/slots.js';
+import { Pit } from './Pit.js';
 
 const HEAT_SHARE = 1.6;        // cuánto del calor del pozo le llega a cada leña
 const STRUCT_STEP = 0.25;      // la estructura se revisa a 4 Hz
 const SHRINK_AT = 0.5;         // fracción de combustible a la que una pieza pasa al tamaño de abajo
+const EMBERS_AT = 0.2;         // fracción de combustible con la que la llama pasa a brasas
+// Ceniza que deja cada pieza (se diluye en pozos grandes), lo que se asienta sola por segundo y lo que lava la lluvia.
+const ASH_PER_PIECE = 0.025;
+const ASH_SETTLES = 0.004;
+const ASH_RAIN = 0.02;
+const ASH_GREY = 0xa39d97;     // las brasas se cubren de ceniza hasta quedar de este gris
 
 export class Fire {
   constructor(scene, audio) {
@@ -593,7 +600,7 @@ export class Fire {
       p.bellows = Math.max(0, p.bellows - dt * 0.7);
       p.flash = Math.max(0, (p.flash || 0) - dt * 2.2);
       p.bellows = Math.max(p.bellows, p.perks.bellows); // la fragua sopla sola
-      p.air = Math.min(1.5, (1 + p.bellows * 0.6 + wind * 0.3) * p.airSize * p.sAir * mods.draft);
+      p.air = Math.min(1.5, (1 + p.bellows * 0.6 + wind * 0.3) * p.airSize * p.sAir * mods.draft * (1 - p.choke));
       // Un pozo más grande se moja más si no tiene techo.
       p.rain = p.roof || p.perks.covered ? 0 : rainAll * (1 + 0.1 * p.size);
       // Una fogata armada escurre parte del agua: aguanta la lluvia moderada en pozos grandes.
@@ -658,7 +665,8 @@ export class Fire {
     const flick = 1 + 0.07 * Math.sin(this.time * 13) + 0.05 * Math.sin(this.time * 29 + 1) + Math.random() * 0.04;
     let total = 0;
     for (const p of this.pits) {
-      p.bed = Math.max(0, p.bed - dt * (0.012 * mods.bedDecay * p.perks.bedDecay + p.rain * 0.08));
+      p.bed = Math.max(0, p.bed - dt * (0.012 * mods.bedDecay * p.perks.bedDecay * (1 - p.shelter) + p.rain * 0.08));
+      p.ash = Math.max(0, p.ash - dt * (ASH_SETTLES + p.rain * ASH_RAIN));
       let heat = p.bed * 0.5 * (1 + p.bellows);
       let lx = 0, ly = 0, lw = 0;
       for (const l of logs) {
@@ -772,9 +780,9 @@ export class Fire {
       l.lowTime = l.flame < 0.22 ? l.lowTime + dt : 0;
       this.stats.llama++;
       if (l.lowTime > 2.2) this.toEmbers(l, true);
-      else if (l.fuel <= l.maxFuel * 0.2) this.toEmbers(l, false);
+      else if (l.fuel <= l.maxFuel * EMBERS_AT) this.toEmbers(l, false);
     } else if (l.state === 'brasas') {
-      const base = l.choked ? 1 : 0.35 + 0.65 * clamp(l.fuel / (l.maxFuel * 0.2), 0, 1);
+      const base = l.choked ? 1 : 0.35 + 0.65 * clamp(l.fuel / (l.maxFuel * EMBERS_AT), 0, 1);
       l.glowLevel = base * clamp(l.air, 0.3, 1.3) * (1 - l.rain * 0.4);
       l.fuel -= dt * (l.choked ? 0.12 : 0.3) * (1 + bellows * 1.5 + l.rain * 2 + wind * 0.5) / mods.embers * (p ? p.sFuel * p.spec.burn : 1);
       l.heatOut = w.heat * 0.5 * l.glowLevel;
@@ -786,7 +794,7 @@ export class Fire {
       } else {
         l.reTime = 0;
       }
-      if (l.choked && l.fuel <= l.maxFuel * 0.2) l.choked = false;
+      if (l.choked && l.fuel <= l.maxFuel * EMBERS_AT) l.choked = false;
       if (l.fuel <= 0) this.toAsh(l);
     }
     if (l.burning) this.tryShrink(l);
@@ -857,7 +865,7 @@ export class Fire {
     const ghost = this.scene.add.image(s.x, s.y, s.texture.key)
       .setRotation(s.rotation).setScale(l.size).setFlipX(s.flipX).setTint(0x6a625c).setDepth(19);
     if (l.pit) {
-      l.pit.ash = Math.min(1.5, l.pit.ash + 0.06);
+      l.pit.ash = Math.min(Pit.ASH_MAX, l.pit.ash + ASH_PER_PIECE / (1 + 0.3 * l.pit.size));
       l.pit.bed = Math.min(1, l.pit.bed + 0.18 * l.wood.heat);
     }
     for (let i = 0; i < 10; i++) {
@@ -883,10 +891,14 @@ export class Fire {
     let char;
     if (l.state === 'cruda') char = clamp((this.warmth(l) - 0.15) * 0.6, 0, 0.25);
     else char = clamp(0.3 + (1 - l.fuel / l.maxFuel) * 1.1, 0, 0.92);
-    if (Math.abs(char - l.char) > 0.01 || l.burnTint !== l.burning) {
+    // En brasas, la pieza se va cubriendo de ceniza gris a medida que se le acaba el combustible.
+    const cover = l.state === 'brasas' && !l.cone && !l.choked ? clamp(1 - l.fuel / (l.maxFuel * EMBERS_AT), 0, 1) * 0.92 : 0;
+    if (Math.abs(char - l.char) > 0.01 || l.burnTint !== l.burning || Math.abs(cover - (l.ashCover || 0)) > 0.02) {
       l.burnTint = l.burning;
       l.char = char;
-      l.sprite.setTint(lerpColor(0xffffff, 0x2a201c, Math.min(0.85, char * 0.8 + (l.burning ? 0.35 : 0))));
+      l.ashCover = cover;
+      const dark = lerpColor(0xffffff, 0x2a201c, Math.min(0.85, char * 0.8 + (l.burning ? 0.35 : 0)));
+      l.sprite.setTint(cover > 0 ? lerpColor(dark, ASH_GREY, cover) : dark);
     }
     let a = 0;
     let color = 0xff8030;
@@ -898,17 +910,17 @@ export class Fire {
     } else if (this.warmth(l) > 0.35) {
       a = (this.warmth(l) - 0.35) * 0.4;
     }
-    l.glow.setAlpha(Math.min(1, a * (l.cone ? 1 : 0.8)));
+    l.glow.setAlpha(Math.min(1, a * (l.cone ? 1 : 0.8)) * (1 - 0.8 * cover));
     // Carbonizado progresivo y grietas incandescentes (solo troncos; se crean cuando empiezan a arder).
     if (!l.cone && (char > 0.3 || l.state === 'brasas')) {
       l.ensureOverlays();
-      l.charImg.setAlpha(clamp((char - 0.25) * 1.3, 0, 0.95));
+      l.charImg.setAlpha(clamp((char - 0.25) * 1.3, 0, 0.95) * (1 - cover));
       const heavy = char > 0.7 ? 'log-char1' : 'log-char0';
       if (l.charImg.texture.key !== heavy) l.charImg.setTexture(heavy);
       let ca = 0;
       if (l.state === 'llama') ca = 0.25 * l.flame * (0.8 + 0.2 * Math.sin(time * 0.012 + l.phase));
       else if (l.state === 'brasas') ca = l.glowLevel * (0.55 + 0.45 * Math.sin(time * 0.0035 + l.phase));
-      l.crackImg.setAlpha(Math.min(1, ca));
+      l.crackImg.setAlpha(Math.min(1, ca) * (1 - cover));
       l.crackImg.setTint(l.state === 'brasas' ? 0xff6a20 : 0xffb050);
     }
     if (l.glowColor !== color) {
