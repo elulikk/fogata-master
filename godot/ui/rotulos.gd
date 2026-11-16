@@ -92,6 +92,8 @@ func mensaje_pozo(p: Pozo, texto: String, color := Tema.TEXTO, prio := 1, vida :
 
 
 func fogonazo(color: Color, fuerza := 0.35, dura := 0.35) -> void:
+	if not juego.estado.d.ajustes.get("destellos", true):
+		return
 	_flash.color = Color(color.r, color.g, color.b, fuerza)
 	var t := _flash.create_tween()
 	t.tween_property(_flash, "color:a", 0.0, dura).set_ease(Tween.EASE_OUT)

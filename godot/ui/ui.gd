@@ -286,7 +286,7 @@ func _armar_pila(filas: Array) -> void:
 			b.custom_minimum_size = Vector2(64, 30)
 			b.add_theme_font_size_override("font_size", 15)
 			b.add_theme_font_override("font", Tema.fuente_fuerte())
-			b.tooltip_text = "%s\n%s\n%s" % [w.nombre, w.desc, w.pista]
+			b.tooltip_text = "%s\n%s\n🔥 Calor %.1f · ⏱ arde ~%d s\n%s" % [w.nombre, w.desc, w.calor, roundi(w.combustible), w.pista]
 			_pila.add_child(b)
 			_celdas[clave] = b
 
@@ -619,6 +619,18 @@ func _ventana_menu() -> Ventana:
 		rotular.call(x)
 		sonidos.ajustes(aj.volumen, aj.mudo))
 	v.cuerpo.add_child(mudo)
+	_seccion(v, "Pantalla")
+	var destellos := _ancho(Tema.boton("", func() -> void: pass))
+	destellos.toggle_mode = true
+	destellos.button_pressed = aj.get("destellos", true)
+	var rotular_d := func(x: bool) -> void:
+		destellos.text = "✨  Destellos de pantalla: sí" if x else "✨  Destellos de pantalla: no"
+	rotular_d.call(destellos.button_pressed)
+	destellos.tooltip_text = "El fogonazo que ilumina la pantalla en los momentos grandes (pico, nivel, evolución)."
+	destellos.toggled.connect(func(x: bool) -> void:
+		aj["destellos"] = x
+		rotular_d.call(x))
+	v.cuerpo.add_child(destellos)
 	v.cuerpo.add_child(HSeparator.new())
 	_seccion(v, "Partida")
 	v.cuerpo.add_child(_ancho(Tema.boton("🏆  Logros", func() -> void: abrir("logros"))))
