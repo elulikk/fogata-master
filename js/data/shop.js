@@ -38,9 +38,12 @@ export function compareSizes(a, b) {
 
 const unitPrice = (sp, cut) => CUTS[cut].bundle * CUTS[cut].price * SPECIES[sp].price;
 const buyableSpecies = SPECIES_ORDER.filter((sp) => Number.isFinite(SPECIES[sp].hearth));
+// Las ramas se venden de pocas especies: son la leña más barata y no conviene llenar la tienda con ellas.
+export const TWIG_SPECIES = ['pino'];
+const sold = (sp, cut) => cut !== 'rama' || TWIG_SPECIES.includes(sp);
 
 // Un manojo de un corte de una especie. Solo se ofrecen los cortes que alguna fogata acepta.
-const woodItems = () => buyableSpecies.flatMap((sp) => CUT_ORDER.map((cut) => {
+const woodItems = () => buyableSpecies.flatMap((sp) => CUT_ORDER.filter((cut) => sold(sp, cut)).map((cut) => {
   const c = CUTS[cut];
   const what = c.bundle > 1 ? c.plural : c.name.toLowerCase();
   return {

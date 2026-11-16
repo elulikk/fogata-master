@@ -8,6 +8,8 @@ class_name Tienda
 const RECUPERA_MERCADO := 15.0
 
 static var _fijos: Array = []
+# Las ramas se venden de pocas especies: son la leña más barata y no conviene llenar la tienda con ellas.
+const RAMAS_DE := ["pino"]
 
 
 static func _crece(base: float, k: float, n: float) -> int:
@@ -46,6 +48,8 @@ static func _fijos_lista() -> Array:
 		if Maderas.ESPECIES[sp].fogon < 0:
 			continue
 		for corte: String in Maderas.ORDEN_CORTES:
+			if corte == "rama" and not RAMAS_DE.has(sp):
+				continue
 			var c: Dictionary = Maderas.CORTES[corte]
 			var clave := Maderas.clave(sp, corte)
 			var unidad: float = c.manojo * c.precio * Maderas.ESPECIES[sp].precio

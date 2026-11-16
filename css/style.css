@@ -1715,3 +1715,48 @@ kbd {
 #ui.compact .tree { flex-wrap: wrap; }
 #ui.compact .branch { flex: 1 1 30% !important; }
 #ui.compact .dev-grid { grid-template-columns: repeat(2, 1fr); }
+
+/* ===== Tema de brasa: la misma paleta que el prototipo de Godot (godot/ui/tema.gd) ===== */
+:root {
+  --text: #f5ebd9;
+  --muted: #b39980;
+  --ember: #ff9e33;
+  --gold: #ffd166;
+  --panel: rgba(19, 13, 10, 0.95);
+  --panel-2: rgba(36, 24, 17, 0.95);
+  --panel-line: rgba(115, 74, 41, 0.95);
+  --line-soft: rgba(69, 46, 29, 1);
+  --good: #bfe68c;
+  --rain: #73b3ff;
+}
+
+#panel h2, .menu-box h2 { color: var(--ember); }
+#panel header { border-bottom-color: var(--line-soft); }
+
+/* Filas de las ventanas como tarjetas: fondo de madera oscura y borde que se enciende al pasar. */
+.item {
+  background: var(--panel-2);
+  border-color: var(--line-soft);
+  transition: border-color 0.12s;
+}
+.item:hover { border-color: var(--panel-line); }
+.item .ico {
+  width: 40px;
+  height: 40px;
+  line-height: 40px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line-soft);
+  font-size: 22px;
+}
+.item .lvl { color: var(--gold); }
+.item button.affordable { border-color: var(--gold); }
+
+/* El HUD de calor en su panel, como el resto de la interfaz. */
+#hud-calor {
+  background: rgba(15, 10, 8, 0.72);
+  border: 1px solid var(--line-soft);
+  border-radius: 14px;
+  padding: 8px 14px 10px;
+}
+#ui.sky-day #hud-calor { background: rgba(15, 10, 8, 0.8); }

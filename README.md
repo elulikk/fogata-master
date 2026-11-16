@@ -71,7 +71,7 @@ La **madera húmeda** (lo que moja la lluvia) primero se seca, humea y chilla. L
 
 El calor es la moneda y la leña es el gasto que no se termina: quemás para ganar y comprás para seguir quemando.
 
-- **Comprarla**: con el **+** de la pila o en Pyroshop (un manojo de esa madera). Solo se ofrecen los cortes que alguna de tus fogatas acepta. El precio sigue a lo que rinde cada especie y sube si comprás de golpe, pero baja solo con el tiempo. Todo se paga solo con calor.
+- **Comprarla**: con el **+** de la pila o en Pyroshop (un manojo de esa madera). Solo se ofrecen los cortes que alguna de tus fogatas acepta, y las ramas solo de pino. El precio sigue a lo que rinde cada especie y sube si comprás de golpe, pero baja solo con el tiempo. Todo se paga solo con calor.
 - **Leñador**: se contrata en Construir y te trae leña sin que dejes el fuego, sobre todo de pino y hasta un tope de la pila. Una fogata grande igual hay que comprarla.
 - **Sabueso**: una habilidad del árbol; un perro que también trae leña cada tanto.
 - **Cuidador del fuego**: se contrata en Construir. Carga solo la leña de la pila en las fogatas prendidas y rastrilla la ceniza que las ahoga.
