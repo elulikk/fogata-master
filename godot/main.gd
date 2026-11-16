@@ -122,6 +122,7 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 			var texto: String = "fósforos" if k == "fosforo" else Maderas.de(k).nombre.to_lower()
 			ui.flotar(Vector2(120, get_viewport().get_visible_rect().size.y - 240), "+%d %s" % [datos.n, texto], Tema.BIEN)
 		"amanecer": ui.mostrar_amanecer(datos)
+		"renacio": ui.mostrar_renacer(datos)
 
 
 # --- Festejos: lo que en el 2D eran los mensajes sobre la fogata, el fogonazo y las chispas de los momentos grandes ---
@@ -239,7 +240,23 @@ func _crear_pieza(datos: Dictionary) -> void:
 	l.pos = v.global_position
 	_piezas[l] = v
 	if datos.has("lugar"):
-		sonidos.tocar("golpe", 0.5 + l.madera.nivel * 0.25)
+		v.caer()
+		v.aterrizo.connect(_aterrizo)
+
+
+# Como en el 2D, la leña que cae en un fuego prendido levanta chispas y aviva la luz; en la ceniza, un poco de polvo.
+func _aterrizo(v: VistaPieza, fuerza: float) -> void:
+	var l := v.leno
+	if l == null or not _pozos.has(l.pozo):
+		return
+	var p := l.pozo
+	var golpe := clampf(fuerza / 4.0, 0.25, 1.0)
+	sonidos.tocar("golpe", golpe * (0.5 + l.madera.nivel * 0.25), randf_range(0.9, 1.1) - l.madera.nivel * 0.08, 40)
+	if p.prendido():
+		_pozos[p].estallido(v.global_position, 4 + l.madera.nivel * 5)
+		p.destello = maxf(p.destello, 0.2 + 0.12 * l.madera.nivel)
+	if p.ceniza > 0.2:
+		_pozos[p].bocanada(v.global_position, 3 + l.madera.nivel * 2, 0.25 + 0.1 * l.madera.nivel)
 
 
 func _sacar_pieza(l: Leno, ceniza: bool) -> void:
@@ -596,6 +613,9 @@ func _prueba_automatica(prefijo: String) -> void:
 	ui.mostrar_amanecer({"exito": true, "ceniza": 3, "punto": true, "calor": 1234.0, "proporcion": 0.82})
 	await _esperar(0.4)
 	await _capturar(prefijo + "-2c-amanecer.png")
+	ui.mostrar_renacer({"ceniza": 7, "calor": 45210.0, "nivel": 12, "noches": 3, "fogones": 4, "tiempo": 5430.0, "ash": 19, "vez": 2})
+	await _esperar(0.4)
+	await _capturar(prefijo + "-2d-renacer.png")
 	ui.cerrar()
 
 	d.unlocked.habilidades = true

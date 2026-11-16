@@ -702,6 +702,36 @@ func mostrar_amanecer(info: Dictionary) -> void:
 	_poner(v, "amanecer")
 
 
+# Resumen al renacer (como el del 2D): lo que dejó la partida y lo que se lleva a la próxima.
+func mostrar_renacer(info: Dictionary) -> void:
+	var v := Ventana.new("🪦 Renaciste", Vector2(460, 0))
+	v.cuerpo.add_child(Tema.etiqueta("+%d de ceniza" % info.ceniza, 24, Tema.BIEN, true))
+	var minutos := int(info.tiempo / 60.0)
+	var lineas := [
+		"🔥 Calor juntado: %s" % Tema.numero(info.calor),
+		"⭐ Llegaste al nivel %d" % info.nivel,
+		"🌅 Noches sobrevividas: %d" % info.noches,
+		"🔨 Tu mejor fogata: %s" % Fogones.de(info.fogones).nombre,
+		"⏱ %d h %02d min de partida" % [minutos / 60, minutos % 60],
+	]
+	for t: String in lineas:
+		v.cuerpo.add_child(Tema.etiqueta(t, 14))
+	v.cuerpo.add_child(HSeparator.new())
+	var nota := Tema.etiqueta("Tenés %d de ceniza para mejoras permanentes. Renacimiento n.º %d." % [info.ash, info.vez], 13, Tema.TENUE)
+	nota.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.cuerpo.add_child(nota)
+	var fila := HBoxContainer.new()
+	fila.add_theme_constant_override("separation", 8)
+	var gastar := _ancho(Tema.boton("🪦 Ver mejoras", func() -> void: abrir("cenizas"), "Principal"))
+	gastar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fila.add_child(gastar)
+	var seguir := _ancho(Tema.boton("Empezar", cerrar))
+	seguir.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	fila.add_child(seguir)
+	v.cuerpo.add_child(fila)
+	_poner(v, "renacer")
+
+
 # --- Avisos y texto flotante ---
 
 func avisar(texto: String, tipo := "") -> void:

@@ -236,12 +236,16 @@ func nueva_fogata() -> void:
 func renacer() -> bool:
 	if not estado.puede_renacer():
 		return false
+	var d := estado.d
 	var ganada := estado.ceniza_posible()
-	estado.d.meta.ash += ganada
-	estado.d.meta.totalAsh += ganada
-	estado.d.meta.prestiges += 1
+	var resumen := {"ceniza": ganada, "calor": d.totalCalor, "nivel": int(d.level), "noches": int(d.night.dawns), "fogones": Tienda.mejor_fogon(d), "tiempo": d.playTime}
+	d.meta.ash += ganada
+	d.meta.totalAsh += ganada
+	d.meta.prestiges += 1
 	partida_nueva(true)
-	evento.emit("aviso", {"texto": "Renaciste con +%d de ceniza." % ganada, "tipo": "hito"})
+	resumen.merge({"ash": int(estado.d.meta.ash), "vez": int(estado.d.meta.prestiges)})
+	evento.emit("renacio", resumen)
+	evento.emit("sonido", {"nombre": "amanecer"})
 	return true
 
 

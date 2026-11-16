@@ -12,7 +12,11 @@ const ESTIRA_MAXIMO := 1.8
 
 static var _materiales_llama := {}
 
+# La primera vez que una pieza soltada desde arriba toca algo: ahí suena el golpe y saltan chispas.
+signal aterrizo(pieza: VistaPieza, fuerza: float)
+
 var leno: Leno
+var _vel_previa := 0.0
 var _mesh: MeshInstance3D
 var _forma: CylinderShape3D
 var _material: ShaderMaterial
@@ -127,9 +131,21 @@ func _armar_modelo(datos: Dictionary, radio: float, largo: float) -> float:
 	return s[eje] * k_largo
 
 
+func caer() -> void:
+	contact_monitor = true
+	max_contacts_reported = 1
+	body_entered.connect(_al_tocar, CONNECT_ONE_SHOT)
+
+
+func _al_tocar(_cuerpo: Node) -> void:
+	set_deferred("contact_monitor", false)
+	aterrizo.emit(self, _vel_previa)
+
+
 func _physics_process(delta: float) -> void:
 	if sleeping:
 		return
+	_vel_previa = linear_velocity.length()
 	# Una pieza casi quieta se duerme: la pila se calma en vez de temblar o reptar.
 	if linear_velocity.length() < QUIETA_LINEAL and angular_velocity.length() < QUIETA_ANGULAR:
 		_tiempo_quieta += delta
