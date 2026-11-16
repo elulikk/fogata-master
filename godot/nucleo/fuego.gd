@@ -11,7 +11,7 @@ const ACHICA_A := 0.5
 const BRASAS_DESDE := 0.2
 # Ceniza que deja cada pieza (se diluye en pozos grandes), lo que se asienta sola por segundo y lo que lava la lluvia.
 const CENIZA_POR_PIEZA := 0.025
-const CENIZA_ASIENTA := 0.004
+const CENIZA_ASIENTA := 0.0015
 const CENIZA_LAVA := 0.02
 const PICO := {"umbral": 1.0, "dura": 5.0, "espera": 120.0}
 

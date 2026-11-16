@@ -16,7 +16,7 @@ const SHRINK_AT = 0.5;         // fracción de combustible a la que una pieza pa
 const EMBERS_AT = 0.2;         // fracción de combustible con la que la llama pasa a brasas
 // Ceniza que deja cada pieza (se diluye en pozos grandes), lo que se asienta sola por segundo y lo que lava la lluvia.
 const ASH_PER_PIECE = 0.025;
-const ASH_SETTLES = 0.004;
+const ASH_SETTLES = 0.0015;
 const ASH_RAIN = 0.02;
 const ASH_GREY = 0xa39d97;     // las brasas se cubren de ceniza hasta quedar de este gris
 

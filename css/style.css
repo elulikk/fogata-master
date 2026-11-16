@@ -1593,9 +1593,6 @@ kbd {
   from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
 }
 
-/* Con una ventana abierta, los botones que la abren quedan por encima del velo para poder cambiar de una a otra. */
-#actions, #hud-right { z-index: 6; }
-
 .item .lvl { margin-left: 6px; }
 
 /* Puntos de habilidad sin gastar. */

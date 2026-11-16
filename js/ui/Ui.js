@@ -958,10 +958,10 @@ export class Ui {
   renderTree() {
     const t = this.handlers.tree?.();
     if (!t) return;
-    this.treeNodes = {};
     const sig = JSON.stringify(t);
     if (sig === this.panelSig) return;
     this.panelSig = sig;
+    this.treeNodes = {};
     const node = (n) => {
       this.treeNodes[n.id] = n;
       const state = n.level >= n.max ? 'maxed' : n.can ? 'can' : !n.open ? 'locked' : '';
