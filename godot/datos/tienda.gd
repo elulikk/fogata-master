@@ -132,7 +132,7 @@ static func _de_fogatas(d: Dictionary) -> Array:
 		var cupo: Dictionary = sigue.cupo
 		fuera.append({
 			"id": "agrandar_%d" % i, "tab": "construir", "icono": "🔨", "nombre": "Evolucionar a %s%s" % [sigue.nombre, etiqueta], "max": 99, "pozo": i, "meta": 1 + 9 * i, "agrandar": true,
-			"desc": "Entran %d ramas, %d leñas y %d troncos. Calor ×%s. %s" % [cupo.rama, cupo.lena, cupo.tronco, str(sigue.mult), sigue.get("ventaja", {}).get("texto", "")],
+			"desc": "%s. %s" % [_comparar(Fogones.de(tam), sigue), sigue.get("ventaja", {}).get("texto", "")],
 			"requiere": func(s: Dictionary) -> bool: return s.unlocked.get("construir", false) and s.totalCalor >= sigue.costo * 0.5,
 			"bloqueado": func(s: Dictionary) -> String:
 				var tamanos := []
@@ -157,6 +157,26 @@ static func _de_fogatas(d: Dictionary) -> Array:
 			"accion": func(j) -> void: j.nueva_fogata(),
 		})
 	return fuera
+
+
+static func _x(n: float) -> String:
+	return "×" + ("%.2f" % n).trim_suffix("0").trim_suffix("0").trim_suffix(".")
+
+
+# Cómo cambia la fogata al evolucionar: lo que cambia se muestra ahora → después.
+static func _comparar(a: Dictionary, b: Dictionary) -> String:
+	var partes := []
+	for corte: String in Maderas.ORDEN_CORTES:
+		var de: int = a.cupo[corte]
+		var a_: int = b.cupo[corte]
+		if a_ > 0:
+			partes.append("%s %s" % [Maderas.CORTES[corte].plural.capitalize(), str(a_) if de == a_ else "%d→%d" % [de, a_]])
+	partes.append("Calor %s→%s" % [_x(a.mult), _x(b.mult)])
+	if b.quema != a.quema:
+		partes.append("Consumo %s→%s" % [_x(a.quema), _x(b.quema)])
+	if b.tipis != a.tipis:
+		partes.append("Tipis %d→%d" % [a.tipis, b.tipis])
+	return " · ".join(partes)
 
 
 static func todos(d: Dictionary) -> Array:

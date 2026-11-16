@@ -23,6 +23,9 @@ const RECETAS := {
 	"logro": [{"f": 784.0, "ataque": 0.02, "caida": 0.5, "vol": 0.12}, {"f": 1047.0, "ataque": 0.02, "caida": 0.5, "vol": 0.11, "t": 0.13}, {"f": 1319.0, "ataque": 0.02, "caida": 0.9, "vol": 0.1, "t": 0.26}],
 	"agrandar": [{"f": 70.0, "f2": 50.0, "ataque": 0.03, "caida": 0.8, "vol": 0.45}, {"ruido": true, "f": 400.0, "f2": 200.0, "caida": 0.6, "vol": 0.2}],
 	"amanecer": [{"f": 392.0, "ataque": 0.4, "caida": 1.2, "vol": 0.12}, {"f": 587.0, "ataque": 0.4, "caida": 1.3, "vol": 0.1, "t": 0.3}, {"f": 784.0, "ataque": 0.4, "caida": 1.5, "vol": 0.09, "t": 0.6}],
+	"tic": [{"f": 1320.0, "f2": 1250.0, "ataque": 0.002, "caida": 0.05, "vol": 0.07}],
+	"pico": [{"ruido": true, "f": 180.0, "f2": 900.0, "ataque": 0.12, "caida": 1.1, "vol": 0.4}, {"f": 392.0, "ataque": 0.02, "caida": 0.6, "vol": 0.12, "t": 0.1}, {"f": 587.0, "ataque": 0.02, "caida": 0.7, "vol": 0.11, "t": 0.2}, {"f": 784.0, "ataque": 0.02, "caida": 1.0, "vol": 0.1, "t": 0.3}],
+	"armada": [{"f": 330.0, "ataque": 0.01, "caida": 0.35, "vol": 0.12}, {"f": 494.0, "ataque": 0.01, "caida": 0.4, "vol": 0.11, "t": 0.08}, {"f": 659.0, "ataque": 0.01, "caida": 0.6, "vol": 0.1, "t": 0.16}, {"ruido": true, "f": 300.0, "f2": 1000.0, "ataque": 0.1, "caida": 0.5, "vol": 0.18}],
 	"trueno": [{"ruido": true, "f": 180.0, "f2": 50.0, "ataque": 0.1, "caida": 2.2, "vol": 0.6}],
 }
 const VARIANTES := 6 # cuántas versiones distintas de cada sonido con variantes

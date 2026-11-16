@@ -432,6 +432,12 @@ func _crear_acciones() -> void:
 
 # --- Ventanas ---
 
+# Una capa que va sobre el mundo pero debajo del velo y las ventanas (por ejemplo, los rótulos).
+func agregar_capa(c: Control) -> void:
+	_raiz.add_child(c)
+	_raiz.move_child(c, _aro.get_index())
+
+
 func hay_ventana() -> bool:
 	return _ventana != null
 

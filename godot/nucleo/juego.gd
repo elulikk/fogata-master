@@ -220,7 +220,7 @@ func agrandar(i: int) -> void:
 	var p: Pozo = fuego.pozos[i]
 	estado.d.pits[i].size = p.tam + 1
 	p.cambiar_tam(p.tam + 1)
-	evento.emit("pozo_cambia", {"pozo": p})
+	evento.emit("pozo_cambia", {"pozo": p, "agrando": true})
 	evento.emit("aviso", {"texto": "🔨 %s. %s" % [p.spec().nombre, p.spec().get("ventaja", {}).get("texto", "")], "tipo": "hito"})
 	evento.emit("sonido", {"nombre": "agrandar"})
 
@@ -313,10 +313,8 @@ func _revisar() -> void:
 		var regalo := roundi(estado.ritmo * estado.mods.tribute)
 		if regalo > 0:
 			estado.ganar_calor(regalo)
-		if d.unlocked.get("habilidades", false):
-			evento.emit("aviso", {"texto": "¡Nivel %d! Puntos de habilidad: %d." % [d.level, Habilidades.puntos(d)], "tipo": "hito"})
 		evento.emit("sonido", {"nombre": "nivel"})
-		evento.emit("nivel", {})
+		evento.emit("nivel", {"nivel": int(d.level), "regalo": regalo})
 
 
 func _noche(dt: float) -> void:
@@ -358,7 +356,7 @@ func _de_fuego(nombre: String, datos: Dictionary) -> void:
 	if nombre == "pico":
 		var regalo := roundi(estado.ritmo * 20.0)
 		estado.ganar_calor(regalo)
-		evento.emit("aviso", {"texto": "🔥 ¡Fogata en su punto! +%d" % regalo, "tipo": "hito"})
+		datos["regalo"] = regalo
 	evento.emit(nombre, datos)
 
 

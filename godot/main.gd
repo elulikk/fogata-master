@@ -10,6 +10,7 @@ const CADA_SOPLO := 0.42
 var juego := Juego.new()
 var mundo: Mundo
 var ui: Ui
+var rotulos: Rotulos
 var sonidos: Sonidos
 var camara: Camera3D
 
@@ -28,6 +29,7 @@ var _combo := 0
 var _combo_t := 0.0
 var _malla_chispa: Mesh
 var _auto := false
+var _festejos := {} # Pozo -> cuándo se festejó su fogata armada
 
 
 func _ready() -> void:
@@ -45,6 +47,8 @@ func _ready() -> void:
 	ui = Ui.new(juego, sonidos)
 	ui.sonar.connect(func(n: String) -> void: sonidos.tocar(n))
 	add_child(ui)
+	rotulos = Rotulos.new(juego, camara, ui, sonidos)
+	ui.agregar_capa(rotulos)
 	juego.evento.connect(_al_evento)
 
 	for arg in OS.get_cmdline_user_args():
@@ -87,9 +91,12 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 		"pozo_cambia":
 			_pozos[datos.pozo].armar()
 			_ubicar_pozos()
+			if datos.get("agrando", false):
+				_festejar_evolucion(datos.pozo)
 		"pozo_nuevo":
 			_crear_pozo(datos.pozo)
 			_ubicar_pozos()
+			rotulos.mensaje_pozo(datos.pozo, "🔥 ¡Nueva fogata!", Tema.ORO, 2, 2.4)
 		"encendida": sonidos.tocar("prende", 0.6 if datos.suave else 0.9, randf_range(0.85, 1.15), 250)
 		"chasquido": _chasquido(datos)
 		"chispero": _pozos[datos.pozo].estallido(datos.pos, 14 if datos.acierta else 7)
@@ -101,7 +108,9 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 		"rastrillada": _pozos[datos.pozo].bocanada(datos.pozo.centro + Vector3.UP * 0.1, 8 + int(datos.sacada * 16.0), 0.55)
 		"soplo": sonidos.tocar("soplo")
 		"seca": ui.avisar("La madera húmeda primero se seca: humea y chilla. Después prende.")
-		"armada": ui.avisar("🔺 Fogata armada: con los tres cortes tira mejor y rinde más.", "hito")
+		"armada": _festejar_armada(datos.pozo)
+		"pico": _festejar_pico(datos.pozo, int(datos.get("regalo", 0)))
+		"nivel": _festejar_nivel(int(datos.nivel), int(datos.regalo))
 		"pausa": get_tree().paused = datos.si
 		"aviso": ui.avisar(datos.texto, datos.get("tipo", ""))
 		"rechazo":
@@ -113,6 +122,60 @@ func _al_evento(nombre: String, datos: Dictionary) -> void:
 			var texto: String = "fósforos" if k == "fosforo" else Maderas.de(k).nombre.to_lower()
 			ui.flotar(Vector2(120, get_viewport().get_visible_rect().size.y - 240), "+%d %s" % [datos.n, texto], Tema.BIEN)
 		"amanecer": ui.mostrar_amanecer(datos)
+
+
+# --- Festejos: lo que en el 2D eran los mensajes sobre la fogata, el fogonazo y las chispas de los momentos grandes ---
+
+# La fogata armada se arma y se desarma seguido (la leña se achica), así que se festeja como mucho una vez por minuto.
+func _festejar_armada(p: Pozo) -> void:
+	var ahora := Time.get_ticks_msec()
+	if ahora - int(_festejos.get(p, -999999)) < 60000:
+		return
+	_festejos[p] = ahora
+	if not juego.estado.d.vistos.get("armada", false):
+		juego.estado.d.vistos["armada"] = true
+		ui.avisar("🔺 Fogata armada: con ramas, leña y troncos tira mejor, prende más rápido y da más calor.", "hito")
+	var pct := roundi(Fogones.ARMADA.calor * p.calidad * juego.estado.mods.structure_bonus * 100.0)
+	rotulos.mensaje_pozo(p, "🔺 ¡Fogata armada!
+rinde +%d%% de calor" % pct, Tema.ORO, 2, 2.6)
+	rotulos.fogonazo(Color(1.0, 0.84, 0.5), 0.12, 0.3)
+	_pozos[p].estallido(p.centro + Vector3.UP * 0.35, 24)
+	sonidos.tocar("armada", 0.9)
+
+
+func _festejar_pico(p: Pozo, regalo: int) -> void:
+	rotulos.mensaje_pozo(p, "🔥 ¡En su punto!
++%s de calor" % Tema.numero(regalo), Tema.CALOR, 3, 2.8, 26)
+	rotulos.fogonazo(Color(1.0, 0.6, 0.2), 0.28, 0.5)
+	for i in 3:
+		_pozos[p].estallido(p.centro + Vector3(randf_range(-0.2, 0.2), 0.3 + i * 0.15, randf_range(-0.2, 0.2)), 30)
+	for i in 6:
+		_soltar_chispa(p.centro + Vector3(randf_range(-0.3, 0.3), randf_range(0.4, 0.9), randf_range(-0.3, 0.3)))
+	sonidos.tocar("pico")
+
+
+func _festejar_nivel(nivel: int, regalo: int) -> void:
+	var p: Pozo = juego.fuego.pozos[0]
+	var texto := "⭐ ¡Nivel %d!" % nivel
+	if juego.estado.d.unlocked.get("habilidades", false):
+		texto += "
+● +1 punto de habilidad"
+	if regalo > 0:
+		texto += "
++%s de calor" % Tema.numero(regalo)
+	rotulos.mensaje_pozo(p, texto, Tema.ORO, 2, 2.6)
+	rotulos.fogonazo(Color(1.0, 0.9, 0.6), 0.18, 0.4)
+	for q in juego.fuego.pozos:
+		if q.prendido():
+			_pozos[q].estallido(q.centro + Vector3.UP * 0.4, 18)
+
+
+func _festejar_evolucion(p: Pozo) -> void:
+	rotulos.mensaje_pozo(p, "🔨 ¡%s!
+calor lleno ×%s" % [p.spec().nombre, ("%.1f" % p.spec().mult).trim_suffix(".0")], Tema.ORO, 2, 2.8, 24)
+	rotulos.fogonazo(Color(1.0, 0.8, 0.5), 0.22, 0.45)
+	_pozos[p].bocanada(p.centro + Vector3.UP * 0.1, 22, 0.9)
+	_pozos[p].estallido(p.centro + Vector3.UP * 0.3, 36)
 
 
 func _rehacer_mundo() -> void:
@@ -549,7 +612,8 @@ func _prueba_automatica(prefijo: String) -> void:
 	# Evoluciona, carga los tres cortes y deja ramas justo sobre los troncos.
 	juego.agrandar(0)
 	juego.agrandar(0)
-	await _esperar(0.3)
+	await _esperar(0.5)
+	await _capturar(prefijo + "-3b-evolucion.png")
 	for clave: String in ["pino_lena", "pino_tronco", "pino_rama"]:
 		e.sumar(clave, 10)
 	for i in 4:
@@ -568,7 +632,24 @@ func _prueba_automatica(prefijo: String) -> void:
 			break
 	await _esperar(5.0)
 	_medir("a los 5 s")
+	ui.elegir_madera("pino_lena")
+	await _esperar(0.3)
 	await _capturar(prefijo + "-4-fogon.png")
+	ui.abrir("construir")
+	await _esperar(0.4)
+	await _capturar(prefijo + "-4z-construir.png")
+	ui.cerrar()
+	# El anillo del pico a medio llenar y después el festejo.
+	juego.fuego.pico_espera = 0.0
+	p.pico_t = Fuego.PICO.dura * 0.6
+	await _esperar(0.1)
+	await _capturar(prefijo + "-4a-anillo.png")
+	var calor_antes: float = d.calor
+	juego._de_fuego("pico", {"pozo": p})
+	await _esperar(0.5)
+	print("PICO regalo=%.0f" % (d.calor - calor_antes))
+	await _capturar(prefijo + "-4a2-pico.png")
+	juego.fuego.pico_espera = Fuego.PICO.espera
 
 	# Ceniza en el pozo y brasas que se cubren de ceniza; después el rastrillo.
 	p.ceniza = 1.2
